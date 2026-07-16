@@ -145,7 +145,7 @@ int main(int argc, char **argv) {
 
   std::cout << std::format("Total board size is {}*{} = {}.\n\n", num_rows, num_columns, num_rows * num_columns);
 
-  // Initalize
+  // Initialize
   // -- Note, using ints here instead of bools because Kokkos does not have views (vecs) of bools
   std::vector<int> current_generation(num_rows * num_columns, 0);
   std::vector<int> next_generation(num_rows * num_columns, 0);
@@ -172,6 +172,8 @@ int main(int argc, char **argv) {
   // I'll call out a few items of note as the code progresses.
 
   // Create Kokkos views
+  // -- Note that we are creating a scope here to ensure that the views are destroyed before the underlying host memory
+  //      vectors are freed. This sort of thing is one of those classic 'gotchas' in managing multiple memory spaces.
   {
     // -- Unmanaged views are used here to show re-use of existing memory space.
     // -- We don't want to create a new host allocation and double up on the host side memory usage.
@@ -204,7 +206,7 @@ int main(int argc, char **argv) {
     // have.
     // ---- So I create an unmanaged view of the next_generation CPU vector and then copy the device view into it.
     // ---- Note that this holds the *previous* generation at this point due to the swaps (in both the legacy code and
-    //        this version).
+    //        this version), so really the variable name is potentially misleading. I didn't have a quick fix :shrug:.
     // ---- We would not need to do this if we did not care about exactly replicating the legacy CPU memory state.
     Kokkos::View<int *, Kokkos::HostSpace, Kokkos::MemoryTraits<Kokkos::Unmanaged>> next_generation_view_h(
         next_generation.data(), next_generation.size());
