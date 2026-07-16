@@ -179,6 +179,13 @@ int main(int argc, char **argv) {
     // -- We don't want to create a new host allocation and double up on the host side memory usage.
     Kokkos::View<int *, Kokkos::HostSpace, Kokkos::MemoryTraits<Kokkos::Unmanaged>> current_generation_view_h(
         current_generation.data(), current_generation.size());
+    // -- Performance note: allocating memory has a cost. So if we are going to enter this function multiple times, then
+    //      it would be a good idea to cache these views somewhere. That's why these views are created *outside*
+    //      of the loop over the number of generations given below! In general, we want to avoid
+    //        1) excessive/duplicate allocations
+    //        2) any unneeded copies back and forth between host/device
+    //      which does encourage us to do as much computation on the device once we have 'paid' the cost of shipping
+    //      the data all the way up to the device. So it is better to port contiguous regions of computation.
     Kokkos::View<int *> current_generation_view_d("current generation", current_generation.size());
     // -- Push from legacy CPU memory to Kokkos managed (device) memory
     std::cout << "!-- Copying current generation from Legacy (host) to Kokkos (device) --\n\n";
