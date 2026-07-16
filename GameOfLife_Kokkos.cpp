@@ -113,6 +113,10 @@ static void stepGeneration(const Kokkos::View<int *> &current_generation, Kokkos
   KOKKOS_IF_ON_HOST(
       (std::cout << std::format("!-- Note: This portion of the core function is on the host ------------\n");))
   // Loop over each cell
+  // -- This whole loop has been moved over onto the device. This was previously a pair of nested loops, but
+  //      here Kokkos gets to decide how to distribute the loop bodies based upon the resources it has.
+  // -- Note that we really do want as much independence, particularly in terms of write access, as possible so that
+  //      Kokkos can do a good job parallelizing the work here and not having to synchronize any threads.
   Kokkos::parallel_for(
       "step Generation", Kokkos::MDRangePolicy<Kokkos::Rank<2>>({0, 0}, {num_rows, num_columns}),
       KOKKOS_LAMBDA(const int row, const int column) {
