@@ -135,7 +135,7 @@ int main(int argc, char **argv) {
 
   std::cout << std::format("Total board size is {}*{} = {}.\n\n", num_rows, num_columns, num_rows * num_columns);
 
-  // Initalize
+  // Initialize
   // -- Note, using ints here instead of bools because Kokkos does not have views (vecs) of bools
   std::vector<int> current_generation(num_rows * num_columns, 0);
   std::vector<int> next_generation(num_rows * num_columns, 0);
