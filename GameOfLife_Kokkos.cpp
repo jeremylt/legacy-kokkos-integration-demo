@@ -83,6 +83,10 @@ static void viewBoard(const std::vector<int> &board, const int num_rows, const i
 // The only change the the function inputs is to use a view instead of a vector.
 KOKKOS_INLINE_FUNCTION int countLiveNeighbors(const Kokkos::View<int *> &board, const int row, const int column,
                                               const int num_rows, const int num_columns) {
+  KOKKOS_IF_ON_HOST((std::cout << std::format("!-- Note: This portion of the kernel should be on the device if "
+                                              "you followed the instructions in the README and "
+                                              "configured Kokkos to execute on the device. This message should "
+                                              "be compiled out if Kokkos was built correctly! --\n");))
   auto neighbor_count = 0;
 
   for (int r = row - 1; r <= row + 1; r++) {

@@ -11,7 +11,7 @@ To enable the CUDA (or other device) backend, pass the correct configuration var
 For example:
 
 ```console
-$ mkdir build && cmake -DKokkos_ARCH_CUDA=ON -DKokkos_ENABLE_CUDA=ON -B build/
+$ mkdir build && cmake -DKokkos_ARCH_AMPERE86=ON -DKokkos_ENABLE_CUDA=ON -B build/
 ```
 
 Consult the [Kokkos configuration guide](https://kokkos.org/kokkos-core-wiki/get-started/configuration-guide.html) to see the appropriate configuration flags to use for your hardware.
