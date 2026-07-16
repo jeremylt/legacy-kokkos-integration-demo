@@ -78,6 +78,9 @@ static void viewBoard(const std::vector<int> &board, const int num_rows, const i
 
  @return The number of live neighbors.
 **/
+// I am not sure the best way to compile away this function annotation if we don't want to pull in Kokkos as a
+//   dependency, though that's not the case for the current code (4C) that I am considering.
+// The only change the the function inputs is to use a view instead of a vector.
 KOKKOS_INLINE_FUNCTION int countLiveNeighbors(const Kokkos::View<int *> &board, const int row, const int column,
                                               const int num_rows, const int num_columns) {
   auto neighbor_count = 0;
@@ -108,6 +111,7 @@ KOKKOS_INLINE_FUNCTION int countLiveNeighbors(const Kokkos::View<int *> &board, 
 
  @return none
 **/
+// The only change the the function signature is to use views instead of vectors.
 static void stepGeneration(const Kokkos::View<int *> &current_generation, Kokkos::View<int *> &next_generation,
                            const int num_rows, const int num_columns) {
   KOKKOS_IF_ON_HOST(
