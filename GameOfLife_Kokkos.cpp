@@ -143,6 +143,37 @@ static void stepGeneration(const Kokkos::View<int *> &current_generation, Kokkos
 }
 
 /**
+  @brief Helper to sync from Legacy (host) vector to Kokkos (device) view.
+
+  @param legacy The legacy vector to copy from.
+  @param view   The Kokkos view to copy into.
+
+  @return none
+**/
+static void syncFromLegacyHost(std::vector<int> legacy, Kokkos::View<int *> view) {
+  //  Here I am creating a temporary Kokkos view using the memory space of the Legacy (host) vector
+  //    and immediately the contents to the Kokkos execution space (device).
+  Kokkos::deep_copy(view, Kokkos::View<int *, Kokkos::HostSpace, Kokkos::MemoryTraits<Kokkos::Unmanaged>>(
+                              legacy.data(), legacy.size()));
+}
+
+/**
+  @brief Helper to sync from Kokkos (device) view to Legacy (host) vector.
+
+  @param view   The Kokkos view to copy from.
+  @param legacy The legacy vector to copy into.
+
+  @return none
+**/
+static void syncToLegacyHost(const Kokkos::View<int *> view, std::vector<int> &legacy) {
+  // And this function is the opposite - I am creating a temporary Kokkos view using the memory space of the
+  //   Legacy (host) vector, but copying from the Kokkos execution space (device).
+  Kokkos::deep_copy(
+      Kokkos::View<int *, Kokkos::HostSpace, Kokkos::MemoryTraits<Kokkos::Unmanaged>>(legacy.data(), legacy.size()),
+      view);
+}
+
+/**
  @brief The main function that runs the Game of Life simulation.
 
  @return 0 on successful execution.
@@ -187,10 +218,6 @@ int main(int argc, char **argv) {
   // -- Note that we are creating a scope here to ensure that the views are destroyed before the underlying host memory
   //      vectors are freed. This sort of thing is one of those classic 'gotchas' in managing multiple memory spaces.
   {
-    // -- Unmanaged views are used here to show re-use of existing memory space.
-    // -- We don't want to create a new host allocation and double up on the host side memory usage.
-    Kokkos::View<int *, Kokkos::HostSpace, Kokkos::MemoryTraits<Kokkos::Unmanaged>> current_generation_view_h(
-        current_generation.data(), current_generation.size());
     // -- Performance note: allocating memory has a cost. So if we are going to enter this function multiple times, then
     //      it would be a good idea to cache these views somewhere. That's why these views are created *outside*
     //      of the loop over the number of generations given below! In general, we want to avoid
@@ -198,12 +225,12 @@ int main(int argc, char **argv) {
     //        2) any unneeded copies back and forth between host/device
     //      which does encourage us to do as much computation on the device once we have 'paid' the cost of shipping
     //      the data all the way up to the device. So it is better to port contiguous regions of computation.
-    Kokkos::View<int *> current_generation_view_d("current generation", current_generation.size());
+    Kokkos::View<int *> current_generation_view("current generation", current_generation.size());
     // -- Push from legacy CPU memory to Kokkos managed (device) memory
     std::cout << "!-- Copying current generation from Legacy (host) to Kokkos (device) --\n\n";
-    Kokkos::deep_copy(current_generation_view_d, current_generation_view_h);
-    // -- Here, I don't yet need a host view, because the computation will all be on device
-    Kokkos::View<int *> next_generation_view_d("next generation", next_generation.size());
+    syncFromLegacyHost(current_generation, current_generation_view);
+    // -- Here, I am just creating a Kokkos view, as we don't need any host side memory (yet!)
+    Kokkos::View<int *> next_generation_view("next generation", next_generation.size());
 
     // Step simulation through generations
     const int num_steps = readUserInput("steps", 10, 1, std::numeric_limits<int>::max());
@@ -211,26 +238,22 @@ int main(int argc, char **argv) {
     for (auto generation = 0; generation < num_steps; generation++) {
       // -- Step the simulation
       std::cout << "!-- Executing core function in Kokkos (device) memory -----------------\n";
-      stepGeneration(current_generation_view_d, next_generation_view_d, num_rows, num_columns);
-      std::swap(current_generation_view_d, next_generation_view_d);
+      stepGeneration(current_generation_view, next_generation_view, num_rows, num_columns);
+      std::swap(current_generation_view, next_generation_view);
       // -- And finally view the new board
       // ---- I am pulling down to host for this to use the existing legacy CPU side helper function.
-      // ---- But note that each of these copies incurs a performance cost.
+      //      Note that each of these copies incurs a performance cost.
       std::cout << "!-- Copying current generation from Kokkos (device) to Legacy (host) --\n\n";
-      Kokkos::deep_copy(current_generation_view_h, current_generation_view_d);
+      syncToLegacyHost(current_generation_view, current_generation);
       std::cout << std::format("Generation {}:\n", generation + 1);
       viewBoard(current_generation, num_rows, num_columns);
     }
-    // -- Here I am ensuring that the final memory state of both legacy vecs matches what the CPU only version would
-    // have.
-    // ---- So I create an unmanaged view of the next_generation CPU vector and then copy the device view into it.
-    // ---- Note that this holds the *previous* generation at this point due to the swaps (in both the legacy code and
-    //        this version), so really the variable name is potentially misleading. I didn't have a quick fix :shrug:.
-    // ---- We would not need to do this if we did not care about exactly replicating the legacy CPU memory state.
-    Kokkos::View<int *, Kokkos::HostSpace, Kokkos::MemoryTraits<Kokkos::Unmanaged>> next_generation_view_h(
-        next_generation.data(), next_generation.size());
+    // -- Here I am ensuring that the final memory state of both legacy vecs matches what the CPU only version has.
+    //      Note that this holds the *previous* generation at this point due to the swaps (in both the legacy code and
+    //      this version), so really the variable name is potentially misleading. I didn't have a quick fix :shrug:.
+    //      We would not need to do this if we did not care about exactly replicating the legacy CPU memory state.
     std::cout << "!-- Copying previous generation from Kokkos (device) to Legacy (host) --\n";
-    Kokkos::deep_copy(next_generation_view_h, next_generation_view_d);
+    syncToLegacyHost(next_generation_view, next_generation);
   }
 
   // Cleanup

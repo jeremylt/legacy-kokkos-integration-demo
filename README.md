@@ -47,7 +47,7 @@ The goal of this demo was to show minimally disrupting the existing code so that
 
 This was used as a testbed to investigate LLM usage while maintaining top level control and direction to ensure that all included code was mine and my ideas.
 I used a local instance of the Qwen3:8B LLM via Continue + Ollama for some minor code completion but wrote the function signatures myself.
-I had to ignore any code completition from GitHub Copilot (gotta figure out how to turn that off) because it was giving me outdated suggestions and was inconsistent with how I was designing this demo.
+I had to ignore any code completion from GitHub Copilot (gotta figure out how to turn that off) because it was giving me outdated suggestions and was inconsistent with how I was designing this demo.
 Read the docs and have a plan instead of letting LLMs push your code around before you're ready!
 
 GitHub Copilot was used to review the comments and README to explore the code review capabilities of the tool.
