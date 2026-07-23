@@ -18,8 +18,27 @@ enum MemorySpace {
 
 class DataContainer final {
 private:
+  // Kokkos View on host only
+  Kokkos::View<int *, Kokkos::HostSpace> host_view_;
   // Kokkos DualView
   Kokkos::DualView<int *> dual_view_;
+  // Flag for valid DualView
+  bool is_dual_valid_ = false;
+
+  /**
+    @brief Create a device memory space when requested.
+
+  @return none
+  **/
+  inline void init_dual_view() {
+    if (is_dual_valid_)
+      return;
+    Kokkos::View<int *> device_view(host_view_.label(), host_view_.size());
+    // Note: need to copy to device, as DualView must start with both Views in sync
+    Kokkos::deep_copy(device_view, host_view_);
+    dual_view_ = Kokkos::DualView<int *>(device_view, host_view_);
+    is_dual_valid_ = true;
+  }
 
 public:
   /**
@@ -30,8 +49,9 @@ public:
 
  @return none
   **/
-  DataContainer(const std::string &name, int container_size) {
-    dual_view_ = Kokkos::DualView<int *>(name, container_size);
+  void setup(const std::string &name, int container_size) {
+    host_view_ = Kokkos::View<int *, Kokkos::HostSpace>(name, container_size);
+    is_dual_valid_ = false;
   }
 
   /**
@@ -43,11 +63,18 @@ public:
   **/
   inline const int *get_data(MemorySpace space = DefaultSpace) {
     if (space == DefaultSpace) {
+      if (!is_dual_valid_) {
+        init_dual_view();
+      }
       dual_view_.sync_device();
+      return dual_view_.view_device().data();
     } else {
+      if (!is_dual_valid_) {
+        return host_view_.data();
+      }
       dual_view_.sync_host();
+      return dual_view_.view_host().data();
     }
-    return space == DefaultSpace ? dual_view_.view_device().data() : dual_view_.view_host().data();
   }
 
   /**
@@ -59,13 +86,20 @@ public:
   **/
   inline int *get_data_writable(MemorySpace space = DefaultSpace) {
     if (space == DefaultSpace) {
+      if (!is_dual_valid_) {
+        init_dual_view();
+      }
       dual_view_.sync_device();
       dual_view_.modify_device();
+      return dual_view_.view_device().data();
     } else {
+      if (!is_dual_valid_) {
+        return host_view_.data();
+      }
       dual_view_.sync_host();
       dual_view_.modify_host();
+      return dual_view_.view_host().data();
     }
-    return space == DefaultSpace ? dual_view_.view_device().data() : dual_view_.view_host().data();
   }
 };
 
@@ -222,8 +256,9 @@ int main(int argc, char **argv) {
     // In this version, I am using a small wrapper around the Kokkos DualView to make the changes to the
     //   underlying code less intrusive. In this case, if the code had been built to use pointers to
     //   arrays from the start, then only the lines requesting array access would need to be changed.
-    DataContainer current_generation("current generation", num_rows * num_columns);
-    DataContainer next_generation("next generation", num_rows * num_columns);
+    DataContainer current_generation, next_generation;
+    current_generation.setup("current generation", num_rows * num_columns);
+    next_generation.setup("next generation", num_rows * num_columns);
 
     // -- Reference checkerboard implementation
     const bool use_checkerboard =
