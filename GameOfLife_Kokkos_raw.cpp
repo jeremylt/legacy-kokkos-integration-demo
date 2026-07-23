@@ -2,72 +2,14 @@
  @file GameOfLife_Kokkos.cpp
 
  @brief Implementation of the Game of Life simulation with execution on GPU using Kokkos.
+        In this file, the memory management logic is exposed more readily to the reader.
 **/
 
 #include <Kokkos_Core.hpp>
-#include <Kokkos_DualView.hpp>
 #include <format>
 #include <iostream>
 #include <string>
 #include <vector>
-
-enum MemorySpace {
-  DefaultSpace, // Device data access
-  HostSpace,    // Host data access
-};
-
-class DataContainer final {
-private:
-  // Kokkos DualView
-  Kokkos::DualView<int *> dual_view_;
-
-public:
-  /**
-   @brief Initialize container with name and memory.
-
-   @param name            Name to set for the underlying Kokkos view.
-   @param container_size  Size to set for the underlying Kokkos view.
-
- @return none
-  **/
-  DataContainer(const std::string &name, int container_size) {
-    dual_view_ = Kokkos::DualView<int *>(name, container_size);
-  }
-
-  /**
-    @brief Get read-only pointer to underlying data in target memory space.
-
-    @param space Memory space to get pointer in.
-
-  @return Read only pointer to underlying data in target memory space.
-  **/
-  inline const int *get_data(MemorySpace space = DefaultSpace) {
-    if (space == DefaultSpace) {
-      dual_view_.sync_device();
-    } else {
-      dual_view_.sync_host();
-    }
-    return space == DefaultSpace ? dual_view_.view_device().data() : dual_view_.view_host().data();
-  }
-
-  /**
-    @brief Get writable pointer to underlying data in target memory space.
-
-    @param space Memory space to get pointer in.
-
-  @return Writable pointer to underlying data in target memory space.
-  **/
-  inline int *get_data_writable(MemorySpace space = DefaultSpace) {
-    if (space == DefaultSpace) {
-      dual_view_.sync_device();
-      dual_view_.modify_device();
-    } else {
-      dual_view_.sync_host();
-      dual_view_.modify_host();
-    }
-    return space == DefaultSpace ? dual_view_.view_device().data() : dual_view_.view_host().data();
-  }
-};
 
 /**
  @brief Reads user input for a given parameter with a default value.
@@ -105,7 +47,7 @@ static int readUserInput(const std::string &prompt, const int default_value, con
 
  @return none
 **/
-static void viewBoard(const int *board, const int num_rows, const int num_columns) {
+static void viewBoard(const std::vector<int> &board, const int num_rows, const int num_columns) {
   // Assumes row contents are contiguous
   std::cout << "|";
   for (int column = 0; column < num_columns; column++) {
@@ -140,8 +82,8 @@ static void viewBoard(const int *board, const int num_rows, const int num_column
 // I am not sure the best way to compile away this function annotation if we don't want to pull in Kokkos as a
 //   dependency, though that's not the case for the current code (4C) that I am considering.
 // The only change the the function inputs is to use a view instead of a vector.
-KOKKOS_INLINE_FUNCTION int countLiveNeighbors(const int *board, const int row, const int column, const int num_rows,
-                                              const int num_columns) {
+KOKKOS_INLINE_FUNCTION int countLiveNeighbors(const Kokkos::View<int *> &board, const int row, const int column,
+                                              const int num_rows, const int num_columns) {
   KOKKOS_IF_ON_HOST((std::cout << std::format("!-- Note: This portion of the kernel should be on the device if "
                                               "you followed the instructions in the README and "
                                               "configured Kokkos to execute on the device. This message should "
@@ -175,8 +117,8 @@ KOKKOS_INLINE_FUNCTION int countLiveNeighbors(const int *board, const int row, c
  @return none
 **/
 // The only change the the function signature is to use views instead of vectors.
-static void stepGeneration(const int *current_generation, int *next_generation, const int num_rows,
-                           const int num_columns) {
+static void stepGeneration(const Kokkos::View<int *> &current_generation, Kokkos::View<int *> &next_generation,
+                           const int num_rows, const int num_columns) {
   KOKKOS_IF_ON_HOST(
       (std::cout << std::format("!-- Note: This portion of the core function is on the host ------------\n");))
   // Loop over each cell
@@ -202,6 +144,37 @@ static void stepGeneration(const int *current_generation, int *next_generation, 
 }
 
 /**
+  @brief Helper to sync from Legacy (host) vector to Kokkos (device) view.
+
+  @param legacy The legacy vector to copy from.
+  @param view   The Kokkos view to copy into.
+
+  @return none
+**/
+static void syncFromLegacyHost(std::vector<int> legacy, Kokkos::View<int *> view) {
+  //  Here I am creating a temporary Kokkos view using the memory space of the Legacy (host) vector
+  //    and immediately the contents to the Kokkos execution space (device).
+  Kokkos::deep_copy(view, Kokkos::View<int *, Kokkos::HostSpace, Kokkos::MemoryTraits<Kokkos::Unmanaged>>(
+                              legacy.data(), legacy.size()));
+}
+
+/**
+  @brief Helper to sync from Kokkos (device) view to Legacy (host) vector.
+
+  @param view   The Kokkos view to copy from.
+  @param legacy The legacy vector to copy into.
+
+  @return none
+**/
+static void syncToLegacyHost(const Kokkos::View<int *> view, std::vector<int> &legacy) {
+  // And this function is the opposite - I am creating a temporary Kokkos view using the memory space of the
+  //   Legacy (host) vector, but copying from the Kokkos execution space (device).
+  Kokkos::deep_copy(
+      Kokkos::View<int *, Kokkos::HostSpace, Kokkos::MemoryTraits<Kokkos::Unmanaged>>(legacy.data(), legacy.size()),
+      view);
+}
+
+/**
  @brief The main function that runs the Game of Life simulation.
 
  @return 0 on successful execution.
@@ -218,34 +191,47 @@ int main(int argc, char **argv) {
 
   // Initialize
   // -- Note, using ints here instead of bools because Kokkos does not have views (vecs) of bools
-  {
-    // In this version, I am using a small wrapper around the Kokkos DualView to make the changes to the
-    //   underlying code less intrusive. In this case, if the code had been built to use pointers to
-    //   arrays from the start, then only the lines requesting array access would need to be changed.
-    DataContainer current_generation("current generation", num_rows * num_columns);
-    DataContainer next_generation("next generation", num_rows * num_columns);
+  std::vector<int> current_generation(num_rows * num_columns, 0);
+  std::vector<int> next_generation(num_rows * num_columns, 0);
 
-    // -- Reference checkerboard implementation
-    const bool use_checkerboard =
-        readUserInput("Use checkerboard pattern? (0 for no, otherwise yes)", 1, 0, std::numeric_limits<int>::max());
+  // -- Reference checkerboard implementation
+  const bool use_checkerboard =
+      readUserInput("Use checkerboard pattern? (0 for no, otherwise yes)", 1, 0, std::numeric_limits<int>::max());
 
-    if (use_checkerboard) {
-      auto current_generation_data = current_generation.get_data_writable(HostSpace);
-
-      for (int row = 0; row < num_rows; row++) {
-        for (int column = 0; column < num_columns; column++) {
-          current_generation_data[row * num_columns + column] = (row + column) % 2;
-        }
-      }
-    } else {
-      auto current_generation_data = current_generation.get_data_writable(HostSpace);
-
-      for (auto cell = 0; cell < num_rows * num_columns; ++cell) {
-        current_generation_data[cell] = rand() % 2;
+  if (use_checkerboard) {
+    for (int row = 0; row < num_rows; row++) {
+      for (int column = 0; column < num_columns; column++) {
+        current_generation[row * num_columns + column] = (row + column) % 2;
       }
     }
-    std::cout << std::format("Initial Generation:\n");
-    viewBoard(current_generation.get_data(HostSpace), num_rows, num_columns);
+  } else {
+    for (auto &cell : current_generation) {
+      cell = rand() % 2;
+    }
+  }
+  std::cout << std::format("Initial Generation:\n");
+  viewBoard(current_generation, num_rows, num_columns);
+
+  // We are making minimal modifications here to demonstrate incrementally adding Kokkos to existing code.
+  // I'll call out a few items of note as the code progresses.
+
+  // Create Kokkos views
+  // -- Note that we are creating a scope here to ensure that the views are destroyed before the underlying host memory
+  //      vectors are freed. This sort of thing is one of those classic 'gotchas' in managing multiple memory spaces.
+  {
+    // -- Performance note: allocating memory has a cost. So if we are going to enter this function multiple times, then
+    //      it would be a good idea to cache these views somewhere. That's why these views are created *outside*
+    //      of the loop over the number of generations given below! In general, we want to avoid
+    //        1) excessive/duplicate allocations
+    //        2) any unneeded copies back and forth between host/device
+    //      which does encourage us to do as much computation on the device once we have 'paid' the cost of shipping
+    //      the data all the way up to the device. So it is better to port contiguous regions of computation.
+    Kokkos::View<int *> current_generation_view("current generation", current_generation.size());
+    // -- Push from legacy CPU memory to Kokkos managed (device) memory
+    std::cout << "!-- Copying current generation from Legacy (host) to Kokkos (device) --\n\n";
+    syncFromLegacyHost(current_generation, current_generation_view);
+    // -- Here, I am just creating a Kokkos view, as we don't need any host side memory (yet!)
+    Kokkos::View<int *> next_generation_view("next generation", next_generation.size());
 
     // Step simulation through generations
     const int num_steps = readUserInput("steps", 10, 1, std::numeric_limits<int>::max());
@@ -253,12 +239,22 @@ int main(int argc, char **argv) {
     for (auto generation = 0; generation < num_steps; generation++) {
       // -- Step the simulation
       std::cout << "!-- Executing core function in Kokkos (device) memory -----------------\n";
-      stepGeneration(current_generation.get_data(), next_generation.get_data_writable(), num_rows, num_columns);
-      std::swap(current_generation, next_generation);
+      stepGeneration(current_generation_view, next_generation_view, num_rows, num_columns);
+      std::swap(current_generation_view, next_generation_view);
       // -- And finally view the new board
+      // ---- I am pulling down to host for this to use the existing legacy CPU side helper function.
+      //      Note that each of these copies incurs a performance cost.
+      std::cout << "!-- Copying current generation from Kokkos (device) to Legacy (host) --\n\n";
+      syncToLegacyHost(current_generation_view, current_generation);
       std::cout << std::format("Generation {}:\n", generation + 1);
-      viewBoard(current_generation.get_data(HostSpace), num_rows, num_columns);
+      viewBoard(current_generation, num_rows, num_columns);
     }
+    // -- Here I am ensuring that the final memory state of both legacy vecs matches what the CPU only version has.
+    //      Note that this holds the *previous* generation at this point due to the swaps (in both the legacy code and
+    //      this version), so really the variable name is potentially misleading. I didn't have a quick fix :shrug:.
+    //      We would not need to do this if we did not care about exactly replicating the legacy CPU memory state.
+    std::cout << "!-- Copying previous generation from Kokkos (device) to Legacy (host) --\n";
+    syncToLegacyHost(next_generation_view, next_generation);
   }
 
   // Cleanup

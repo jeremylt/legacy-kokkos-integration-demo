@@ -6,7 +6,9 @@ The CPU only ('legacy') file is `GameOfLife_CPU.cpp` while the Kokkos enabled fi
 ## Dependencies
 
 This demo relies upon Kokkos.
-To make this easy, Kokkos 5.0.0 is downloaded by CMake.
+To make this easy, Kokkos 4.7.4 is downloaded by CMake.
+This usage of Kokkos should, however, be compatible with Kokkos 5.0+.
+
 To enable the CUDA (or other device) backend, pass the correct configuration variables as command line options when invoking CMake.
 For example:
 

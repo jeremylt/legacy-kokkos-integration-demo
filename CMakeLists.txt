@@ -7,9 +7,10 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 include(FetchContent)
+# Change this to /tags/5.0.0 or something else to check forward compatibility
 FetchContent_Declare(
   Kokkos
-  URL https://github.com/kokkos/kokkos/archive/refs/tags/5.0.0.zip
+  URL https://github.com/kokkos/kokkos/archive/refs/tags/4.7.04.zip
 )
 FetchContent_MakeAvailable(Kokkos)
 
