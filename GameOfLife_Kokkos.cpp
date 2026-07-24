@@ -33,9 +33,10 @@ private:
   inline void init_dual_view() {
     if (is_dual_valid_)
       return;
-    Kokkos::View<int *> device_view(host_view_.label(), host_view_.size());
-    // Note: need to copy to device, as DualView must start with both Views in sync
-    Kokkos::deep_copy(device_view, host_view_);
+    // Need to create mirror view in default space and copy the data over
+    // Using a mirror view prevents a double allocation if the default space is on the host
+    Kokkos::View<int *> device_view =
+        Kokkos::create_mirror_view_and_copy(Kokkos::DefaultExecutionSpace::memory_space(), host_view_);
     dual_view_ = Kokkos::DualView<int *>(device_view, host_view_);
     is_dual_valid_ = true;
   }
