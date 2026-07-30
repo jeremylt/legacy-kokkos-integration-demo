@@ -21,16 +21,19 @@ private:
   // Kokkos View on host only
   Kokkos::View<int *, Kokkos::HostSpace> host_view_;
   // Kokkos DualView
-  Kokkos::DualView<int *> dual_view_;
+  mutable Kokkos::DualView<int *> dual_view_;
   // Flag for valid DualView
-  bool is_dual_valid_ = false;
+  mutable bool is_dual_valid_ = false;
 
   /**
     @brief Create a device memory space when requested.
 
+    Note - this is marked as const because it changes the representation
+             of the underlying data, not its logical state
+
   @return none
   **/
-  inline void init_dual_view() {
+  inline void init_dual_view() const {
     if (is_dual_valid_)
       return;
     // Need to create mirror view in default space and copy the data over
@@ -62,7 +65,7 @@ public:
 
   @return Read only pointer to underlying data in target memory space.
   **/
-  inline const int *get_data(MemorySpace space = DefaultSpace) {
+  inline const int *get_data(MemorySpace space = DefaultSpace) const {
     if (space == DefaultSpace) {
       if (!is_dual_valid_) {
         init_dual_view();
