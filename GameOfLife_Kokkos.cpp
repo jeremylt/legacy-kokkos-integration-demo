@@ -209,12 +209,17 @@ KOKKOS_INLINE_FUNCTION int countLiveNeighbors(const int *board, const int row, c
  @param next_generation    The next state of the board.
  @param num_rows           The number of rows in the board.
  @param num_columns        The number of columns in the board.
+ @param min_birth          The min number of neighboring cells to be active for dead cell to activate.
+ @param max_birth          The max number of neighboring cells to be active for dead cell to activate.
+ @param min_remain         The min number of neighboring cells to be active for live cell to remain.
+ @param max_remain         The max number of neighboring cells to be active for live cell to remain.
 
  @return none
 **/
 // The only change the the function signature is to use views instead of vectors.
 static void stepGeneration(const int *current_generation, int *next_generation, const int num_rows,
-                           const int num_columns) {
+                           const int num_columns, const int min_birth, const int max_birth, const int min_remain,
+                           const int max_remain) {
   KOKKOS_IF_ON_HOST(
       (std::cout << std::format("!-- Note: This portion of the core function is on the host ------------\n");))
   // Loop over each cell
@@ -233,7 +238,8 @@ static void stepGeneration(const int *current_generation, int *next_generation, 
 
         // Grow/live if 2-3 neighbors, otherwise die
         auto is_alive_now = current_generation[row * num_columns + column];
-        auto is_alive_next = (neighbor_count == 2 && is_alive_now) || neighbor_count == 3;
+        auto is_alive_next = (is_alive_now && neighbor_count >= min_birth && neighbor_count <= max_birth) ||
+                             (neighbor_count >= min_remain && neighbor_count <= max_remain);
 
         next_generation[row * num_columns + column] = is_alive_next;
       });
@@ -253,6 +259,12 @@ int main(int argc, char **argv) {
   const int num_columns = readUserInput("Enter the number of columns", 1920, 1, std::numeric_limits<int>::max());
 
   std::cout << std::format("Total board size is {}*{} = {}.\n\n", num_rows, num_columns, num_rows * num_columns);
+
+  // Birth and remain rules
+  const int min_birth = readUserInput("Enter the minimum number of live neighbors to trigger birth", 2, 0, 8);
+  const int max_birth = readUserInput("Enter the maximum number of live neighbors to trigger birth", 3, 0, 8);
+  const int min_remain = readUserInput("Enter the minimum number of live neighbors for cell retention", 3, 0, 8);
+  const int max_remain = readUserInput("Enter the maximum number of live neighbors for cell retention", 3, 0, 8);
 
   // Initialize
   // -- Note, using ints here instead of bools because Kokkos does not have views (vecs) of bools
@@ -292,7 +304,8 @@ int main(int argc, char **argv) {
     for (auto generation = 0; generation < num_steps; generation++) {
       // -- Step the simulation
       std::cout << "!-- Executing core function in Kokkos (device) memory -----------------\n";
-      stepGeneration(current_generation.get_data(), next_generation.get_data_writable(), num_rows, num_columns);
+      stepGeneration(current_generation.get_data(), next_generation.get_data_writable(), num_rows, num_columns,
+                     min_birth, max_birth, min_remain, max_remain);
       std::swap(current_generation, next_generation);
       // -- And finally view the new board
       std::cout << std::format("Generation {}:\n", generation + 1);
