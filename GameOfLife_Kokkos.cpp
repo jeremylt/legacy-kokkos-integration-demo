@@ -19,9 +19,9 @@ enum MemorySpace {
 class DataContainer final {
 private:
   // Kokkos View on host only
-  Kokkos::View<int *, Kokkos::HostSpace> host_view_;
+  Kokkos::View<int *, Kokkos::HostSpace> view_host_;
   // Kokkos DualView
-  mutable Kokkos::DualView<int *> dual_view_;
+  mutable Kokkos::DualView<int *> view_dual_;
   // Flag for valid DualView
   mutable bool is_dual_valid_ = false;
 
@@ -38,9 +38,9 @@ private:
       return;
     // Need to create mirror view in default space and copy the data over
     // Using a mirror view prevents a double allocation if the default space is on the host
-    Kokkos::View<int *> device_view =
-        Kokkos::create_mirror_view_and_copy(Kokkos::DefaultExecutionSpace::memory_space(), host_view_);
-    dual_view_ = Kokkos::DualView<int *>(device_view, host_view_);
+    Kokkos::View<int *> view_device =
+        Kokkos::create_mirror_view_and_copy(Kokkos::DefaultExecutionSpace::memory_space(), view_host_);
+    view_dual_ = Kokkos::DualView<int *>(view_device, view_host_);
     is_dual_valid_ = true;
   }
 
@@ -54,7 +54,7 @@ public:
  @return none
   **/
   void setup(const std::string &name, int container_size) {
-    host_view_ = Kokkos::View<int *, Kokkos::HostSpace>(name, container_size);
+    view_host_ = Kokkos::View<int *, Kokkos::HostSpace>(name, container_size);
     is_dual_valid_ = false;
   }
 
@@ -70,14 +70,14 @@ public:
       if (!is_dual_valid_) {
         init_dual_view();
       }
-      dual_view_.sync_device();
-      return dual_view_.view_device().data();
+      view_dual_.sync_device();
+      return view_dual_.view_device().data();
     } else {
       if (!is_dual_valid_) {
-        return host_view_.data();
+        return view_host_.data();
       }
-      dual_view_.sync_host();
-      return dual_view_.view_host().data();
+      view_dual_.sync_host();
+      return view_dual_.view_host().data();
     }
   }
 
@@ -93,16 +93,16 @@ public:
       if (!is_dual_valid_) {
         init_dual_view();
       }
-      dual_view_.sync_device();
-      dual_view_.modify_device();
-      return dual_view_.view_device().data();
+      view_dual_.sync_device();
+      view_dual_.modify_device();
+      return view_dual_.view_device().data();
     } else {
       if (!is_dual_valid_) {
-        return host_view_.data();
+        return view_host_.data();
       }
-      dual_view_.sync_host();
-      dual_view_.modify_host();
-      return dual_view_.view_host().data();
+      view_dual_.sync_host();
+      view_dual_.modify_host();
+      return view_dual_.view_host().data();
     }
   }
 };
