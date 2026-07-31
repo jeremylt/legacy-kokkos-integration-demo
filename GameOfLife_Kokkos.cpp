@@ -237,6 +237,7 @@ static void stepGeneration(const int *current_generation, int *next_generation, 
         auto neighbor_count = countLiveNeighbors(current_generation, row, column, num_rows, num_columns);
 
         // Grow/live if 2-3 neighbors, otherwise die
+        // -- Note that the variables min_* and max_* are captured automatically, we only need to manage arrays
         auto is_alive_now = current_generation[row * num_columns + column];
         auto is_alive_next = (is_alive_now && neighbor_count >= min_birth && neighbor_count <= max_birth) ||
                              (neighbor_count >= min_remain && neighbor_count <= max_remain);
