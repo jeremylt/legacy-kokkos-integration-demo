@@ -2,6 +2,7 @@
 
 This repo provides a demo of integrating Kokkos into legacy code by using [Conway's Game of Life](https://en.wikipedia.org/wiki/Conway%27s_Game_of_Life).
 The CPU only ('legacy') file is `GameOfLife_CPU.cpp` while the Kokkos enabled file is `GameOfLife_Kokkos.cpp`.
+A more 'raw' version that is less disruptive is in `GameOfLife_Kokkos_raw.cpp`, while `GameOfLife_Kokkos_struct.cpp` has a more advanced example with a Kokkos `View` that holds a custom user struct.
 
 ## Dependencies
 
