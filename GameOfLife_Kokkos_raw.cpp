@@ -41,13 +41,13 @@ static int readUserInput(const std::string &prompt, const int default_value, con
 /**
  @brief Displays the current state of the board.
 
- @param board       A vector of boolean values (encoded as integers) representing the board state.
+ @param board       A vector of boolean values (encoded as chars) representing the board state.
  @param num_rows    The number of rows in the board.
  @param num_columns The number of columns in the board.
 
  @return none
 **/
-static void viewBoard(const std::vector<int> &board, const int num_rows, const int num_columns) {
+static void viewBoard(const std::vector<char> &board, const int num_rows, const int num_columns) {
   // Assumes row contents are contiguous
   std::cout << "|";
   for (int column = 0; column < num_columns; column++) {
@@ -82,7 +82,7 @@ static void viewBoard(const std::vector<int> &board, const int num_rows, const i
 // I am not sure the best way to compile away this function annotation if we don't want to pull in Kokkos as a
 //   dependency, though that's not the case for the current code (4C) that I am considering.
 // The only change the the function inputs is to use a view instead of a vector.
-KOKKOS_INLINE_FUNCTION int countLiveNeighbors(const Kokkos::View<int *> &board, const int row, const int column,
+KOKKOS_INLINE_FUNCTION int countLiveNeighbors(const Kokkos::View<char *> &board, const int row, const int column,
                                               const int num_rows, const int num_columns) {
   KOKKOS_IF_ON_HOST((std::cout << std::format("!-- Note: This portion of the kernel should be on the device if "
                                               "you followed the instructions in the README and "
@@ -121,7 +121,7 @@ KOKKOS_INLINE_FUNCTION int countLiveNeighbors(const Kokkos::View<int *> &board, 
  @return none
 **/
 // The only change the the function signature is to use views instead of vectors.
-static void stepGeneration(const Kokkos::View<int *> &current_generation, Kokkos::View<int *> &next_generation,
+static void stepGeneration(const Kokkos::View<char *> &current_generation, Kokkos::View<char *> &next_generation,
                            const int num_rows, const int num_columns, const int min_birth, const int max_birth,
                            const int min_remain, const int max_remain) {
   KOKKOS_IF_ON_HOST(
@@ -158,10 +158,10 @@ static void stepGeneration(const Kokkos::View<int *> &current_generation, Kokkos
 
   @return none
 **/
-static void syncFromLegacyHost(const std::vector<int> &legacy, Kokkos::View<int *> view) {
+static void syncFromLegacyHost(std::vector<char> &legacy, Kokkos::View<char *> view) {
   //  Here I am creating a temporary Kokkos view using the memory space of the Legacy (host) vector
   //    and immediately the contents to the Kokkos execution space (device).
-  Kokkos::deep_copy(view, Kokkos::View<int *, Kokkos::HostSpace, Kokkos::MemoryTraits<Kokkos::Unmanaged>>(
+  Kokkos::deep_copy(view, Kokkos::View<char *, Kokkos::HostSpace, Kokkos::MemoryTraits<Kokkos::Unmanaged>>(
                               legacy.data(), legacy.size()));
 }
 
@@ -173,11 +173,11 @@ static void syncFromLegacyHost(const std::vector<int> &legacy, Kokkos::View<int 
 
   @return none
 **/
-static void syncToLegacyHost(const Kokkos::View<int *> &view, std::vector<int> &legacy) {
+static void syncToLegacyHost(const Kokkos::View<char *> &view, std::vector<char> &legacy) {
   // And this function is the opposite - I am creating a temporary Kokkos view using the memory space of the
   //   Legacy (host) vector, but copying from the Kokkos execution space (device).
   Kokkos::deep_copy(
-      Kokkos::View<int *, Kokkos::HostSpace, Kokkos::MemoryTraits<Kokkos::Unmanaged>>(legacy.data(), legacy.size()),
+      Kokkos::View<char *, Kokkos::HostSpace, Kokkos::MemoryTraits<Kokkos::Unmanaged>>(legacy.data(), legacy.size()),
       view);
 }
 
@@ -203,9 +203,9 @@ int main(int argc, char **argv) {
   const int max_remain = readUserInput("Enter the maximum number of live neighbors for cell retention", 3, 0, 8);
 
   // Initialize
-  // -- Note, using ints here instead of bools because Kokkos does not have views (vecs) of bools
-  std::vector<int> current_generation(num_rows * num_columns, 0);
-  std::vector<int> next_generation(num_rows * num_columns, 0);
+  // -- Note, using chars here instead of bools because of C++ complexities around vectors of bools
+  std::vector<char> current_generation(num_rows * num_columns, 0);
+  std::vector<char> next_generation(num_rows * num_columns, 0);
 
   // -- Reference checkerboard implementation
   const bool use_checkerboard =
@@ -239,12 +239,12 @@ int main(int argc, char **argv) {
     //        2) any unneeded copies back and forth between host/device
     //      which does encourage us to do as much computation on the device once we have 'paid' the cost of shipping
     //      the data all the way up to the device. So it is better to port contiguous regions of computation.
-    Kokkos::View<int *> current_generation_view("current generation", current_generation.size());
+    Kokkos::View<char *> current_generation_view("current generation", current_generation.size());
     // -- Push from legacy CPU memory to Kokkos managed (device) memory
     std::cout << "!-- Copying current generation from Legacy (host) to Kokkos (device) --\n\n";
     syncFromLegacyHost(current_generation, current_generation_view);
     // -- Here, I am just creating a Kokkos view, as we don't need any host side memory (yet!)
-    Kokkos::View<int *> next_generation_view("next generation", next_generation.size());
+    Kokkos::View<char *> next_generation_view("next generation", next_generation.size());
 
     // Step simulation through generations
     const int num_steps = readUserInput("steps", 10, 1, std::numeric_limits<int>::max());
@@ -252,7 +252,8 @@ int main(int argc, char **argv) {
     for (auto generation = 0; generation < num_steps; generation++) {
       // -- Step the simulation
       std::cout << "!-- Executing core function in Kokkos (device) memory -----------------\n";
-      stepGeneration(current_generation_view, next_generation_view, num_rows, num_columns);
+      stepGeneration(current_generation_view, next_generation_view, num_rows, num_columns, min_birth, max_birth,
+                     max_remain, max_remain);
       std::swap(current_generation_view, next_generation_view);
       // -- And finally view the new board
       // ---- I am pulling down to host for this to use the existing legacy CPU side helper function.

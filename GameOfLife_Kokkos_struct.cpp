@@ -16,12 +16,26 @@ enum MemorySpace {
   HostSpace,    // Host data access
 };
 
+// This struct is here to demonstrate that Kokkos views can use custom data types!
+struct CellData final {
+  // State
+  bool is_alive;
+  // Old state
+  bool was_alive;
+  // Did the state flip
+  bool is_changed;
+  // Previous neighbors
+  int previous_neighbors;
+  // Current state
+  int current_neighbors;
+};
+
 class DataContainer final {
 private:
   // Kokkos View on host only
-  Kokkos::View<bool *, Kokkos::HostSpace> view_host_;
+  Kokkos::View<CellData *, Kokkos::HostSpace> view_host_;
   // Kokkos DualView
-  mutable Kokkos::DualView<bool *> view_dual_;
+  mutable Kokkos::DualView<CellData *> view_dual_;
   // Flag for valid DualView
   mutable bool is_dual_valid_ = false;
 
@@ -38,9 +52,9 @@ private:
       return;
     // Need to create mirror view in default space and copy the data over
     // Using a mirror view prevents a double allocation if the default space is on the host
-    Kokkos::View<bool *> view_device =
+    Kokkos::View<CellData *> view_device =
         Kokkos::create_mirror_view_and_copy(Kokkos::DefaultExecutionSpace::memory_space(), view_host_);
-    view_dual_ = Kokkos::DualView<bool *>(view_device, view_host_);
+    view_dual_ = Kokkos::DualView<CellData *>(view_device, view_host_);
     is_dual_valid_ = true;
   }
 
@@ -48,13 +62,13 @@ public:
   /**
    @brief Initialize container with name and memory.
 
-   @param name            Name to set for the underlying Kokkos view.
-   @param container_size  Size to set for the underlying Kokkos view.
+   @param name           Name to set for the underlying Kokkos view.
+   @param container_size Size to set for the underlying Kokkos view.
 
  @return none
   **/
   void setup(const std::string &name, int container_size) {
-    view_host_ = Kokkos::View<bool *, Kokkos::HostSpace>(name, container_size);
+    view_host_ = Kokkos::View<CellData *, Kokkos::HostSpace>(name, container_size);
     is_dual_valid_ = false;
   }
 
@@ -65,7 +79,7 @@ public:
 
   @return Read only pointer to underlying data in target memory space.
   **/
-  inline const bool *get_data(MemorySpace space = DefaultSpace) const {
+  inline const CellData *get_data(MemorySpace space = DefaultSpace) const {
     if (space == DefaultSpace) {
       if (!is_dual_valid_) {
         init_dual_view();
@@ -88,7 +102,7 @@ public:
 
   @return Writable pointer to underlying data in target memory space.
   **/
-  inline bool *get_data_writable(MemorySpace space = DefaultSpace) {
+  inline CellData *get_data_writable(MemorySpace space = DefaultSpace) {
     if (space == DefaultSpace) {
       if (!is_dual_valid_) {
         init_dual_view();
@@ -137,13 +151,13 @@ static int readUserInput(const std::string &prompt, const int default_value, con
 /**
  @brief Displays the current state of the board.
 
- @param board       A vector of boolean values representing the board state.
+ @param board       The board state in an array of CellData.
  @param num_rows    The number of rows in the board.
  @param num_columns The number of columns in the board.
 
  @return none
 **/
-static void viewBoard(const bool *board, const int num_rows, const int num_columns) {
+static void viewBoard(const CellData *board, int num_rows, int num_columns) {
   // Assumes row contents are contiguous
   std::cout << "|";
   for (int column = 0; column < num_columns; column++) {
@@ -153,7 +167,7 @@ static void viewBoard(const bool *board, const int num_rows, const int num_colum
   for (int row = 0; row < num_rows; row++) {
     std::cout << "|";
     for (int column = 0; column < num_columns; column++) {
-      std::cout << (board[row * num_columns + column] ? "X" : ".");
+      std::cout << (board[row * num_columns + column].is_alive ? "X" : ".");
     }
     std::cout << "|\n";
   }
@@ -178,12 +192,8 @@ static void viewBoard(const bool *board, const int num_rows, const int num_colum
 // I am not sure the best way to compile away this function annotation if we don't want to pull in Kokkos as a
 //   dependency, though that's not the case for the current code (4C) that I am considering.
 // The only change the the function inputs is to use a view instead of a vector.
-KOKKOS_INLINE_FUNCTION int countLiveNeighbors(const bool *board, const int row, const int column, const int num_rows,
-                                              const int num_columns) {
-  KOKKOS_IF_ON_HOST((std::cout << std::format("!-- Note: This portion of the kernel should be on the device if "
-                                              "you followed the instructions in the README and "
-                                              "configured Kokkos to execute on the device. This message should "
-                                              "be compiled out if Kokkos was built correctly! --\n");))
+KOKKOS_INLINE_FUNCTION int countLiveNeighbors(const CellData *board, const int row, const int column,
+                                              const int num_rows, const int num_columns) {
   auto neighbor_count = 0;
 
   for (int r = row - 1; r <= row + 1; r++) {
@@ -196,7 +206,7 @@ KOKKOS_INLINE_FUNCTION int countLiveNeighbors(const bool *board, const int row, 
       if (neighbor_row == row && neighbor_column == column) {
         continue;
       }
-      neighbor_count += board[neighbor_row * num_columns + neighbor_column];
+      neighbor_count += board[neighbor_row * num_columns + neighbor_column].was_alive;
     }
   }
   return neighbor_count;
@@ -205,44 +215,49 @@ KOKKOS_INLINE_FUNCTION int countLiveNeighbors(const bool *board, const int row, 
 /**
  @brief Advances the Game of Life simulation by one generation.
 
- @param current_generation The current state of the board.
- @param next_generation    The next state of the board.
- @param num_rows           The number of rows in the board.
- @param num_columns        The number of columns in the board.
- @param min_birth          The min number of neighboring cells to be active for dead cell to activate.
- @param max_birth          The max number of neighboring cells to be active for dead cell to activate.
- @param min_remain         The min number of neighboring cells to be active for live cell to remain.
- @param max_remain         The max number of neighboring cells to be active for live cell to remain.
+ @param cell_data   The current board.
+ @param num_rows    The number of rows in the board.
+ @param num_columns The number of columns in the board.
+ @param min_birth   The min number of neighboring cells to be active for dead cell to activate.
+ @param max_birth   The max number of neighboring cells to be active for dead cell to activate.
+ @param min_remain  The min number of neighboring cells to be active for live cell to remain.
+ @param max_remain  The max number of neighboring cells to be active for live cell to remain.
 
  @return none
 **/
 // The only change the the function signature is to use views instead of vectors.
-static void stepGeneration(const bool *current_generation, bool *next_generation, const int num_rows,
-                           const int num_columns, const int min_birth, const int max_birth, const int min_remain,
-                           const int max_remain) {
+static void stepGeneration(CellData *board, const int num_rows, const int num_columns, const int min_birth,
+                           const int max_birth, const int min_remain, const int max_remain) {
   KOKKOS_IF_ON_HOST(
       (std::cout << std::format("!-- Note: This portion of the core function is on the host ------------\n");))
   // Loop over each cell
-  // -- This whole loop has been moved over onto the device. This was previously a pair of nested loops, but
-  //      here Kokkos gets to decide how to distribute the loop bodies based upon the resources it has.
-  // -- Note that we really do want as much independence, particularly in terms of write access, as possible so that
-  //      Kokkos can do a good job parallelizing the work here and not having to synchronize any threads.
+  // -- Need to copy old data first
   Kokkos::parallel_for(
-      "step Generation", Kokkos::MDRangePolicy<Kokkos::Rank<2>>({0, 0}, {num_rows, num_columns}),
+      "save history", Kokkos::MDRangePolicy<Kokkos::Rank<2>>({0, 0}, {num_rows, num_columns}),
       KOKKOS_LAMBDA(const int row, const int column) {
         KOKKOS_IF_ON_HOST((std::cout << std::format("!-- Note: This portion of the kernel should be on the device if "
                                                     "you followed the instructions in the README and "
                                                     "configured Kokkos to execute on the device. This message should "
                                                     "be compiled out if Kokkos was built correctly! --\n");))
-        auto neighbor_count = countLiveNeighbors(current_generation, row, column, num_rows, num_columns);
+        board[row * num_columns + column].previous_neighbors = board[row * num_columns + column].current_neighbors;
+        board[row * num_columns + column].is_changed =
+            board[row * num_columns + column].is_alive == board[row * num_columns + column].was_alive;
+        board[row * num_columns + column].was_alive = board[row * num_columns + column].is_alive;
+      });
+  // Loop over each cell
+  // -- Then update the new current values
+  Kokkos::parallel_for(
+      "step Generation", Kokkos::MDRangePolicy<Kokkos::Rank<2>>({0, 0}, {num_rows, num_columns}),
+      KOKKOS_LAMBDA(const int row, const int column) {
+        auto neighbor_count = countLiveNeighbors(board, row, column, num_rows, num_columns);
+        board[row * num_columns + column].current_neighbors = neighbor_count;
 
         // Grow/live if 2-3 neighbors, otherwise die
         // -- Note that the variables min_* and max_* are captured automatically, we only need to manage arrays
-        auto is_alive_now = current_generation[row * num_columns + column];
-        auto is_alive_next = (is_alive_now && neighbor_count >= min_birth && neighbor_count <= max_birth) ||
-                             (neighbor_count >= min_remain && neighbor_count <= max_remain);
-
-        next_generation[row * num_columns + column] = is_alive_next;
+        auto was_alive = board[row * num_columns + column].was_alive;
+        auto is_alive = (was_alive && neighbor_count >= min_birth && neighbor_count <= max_birth) ||
+                        (neighbor_count >= min_remain && neighbor_count <= max_remain);
+        board[row * num_columns + column].is_alive = is_alive;
       });
 }
 
@@ -268,36 +283,42 @@ int main(int argc, char **argv) {
   const int max_remain = readUserInput("Enter the maximum number of live neighbors for cell retention", 3, 0, 8);
 
   // Initialize
-  // -- Note, using ints here instead of bools because Kokkos does not have views (vecs) of bools
   {
-    // In this version, I am using a small wrapper around the Kokkos DualView to make the changes to the
-    //   underlying code less intrusive. In this case, if the code had been built to use pointers to
-    //   arrays from the start, then only the lines requesting array access would need to be changed.
-    DataContainer current_generation, next_generation;
-    current_generation.setup("current generation", num_rows * num_columns);
-    next_generation.setup("next generation", num_rows * num_columns);
+    DataContainer board;
+    board.setup("current generation", num_rows * num_columns);
 
     // -- Reference checkerboard implementation
     const bool use_checkerboard =
         readUserInput("Use checkerboard pattern? (0 for no, otherwise yes)", 1, 0, std::numeric_limits<int>::max());
 
     if (use_checkerboard) {
-      auto current_generation_data = current_generation.get_data_writable(HostSpace);
+      auto board_data = board.get_data_writable(HostSpace);
 
       for (int row = 0; row < num_rows; row++) {
         for (int column = 0; column < num_columns; column++) {
-          current_generation_data[row * num_columns + column] = (row + column) % 2;
+          board_data[row * num_columns + column].is_alive = (row + column) % 2;
         }
       }
     } else {
-      auto current_generation_data = current_generation.get_data_writable(HostSpace);
+      auto board_data = board.get_data_writable(HostSpace);
 
       for (auto cell = 0; cell < num_rows * num_columns; ++cell) {
-        current_generation_data[cell] = rand() % 2;
+        board_data[cell].is_alive = rand() % 2;
+      }
+    }
+    // And set the history data
+    {
+      auto board_data = board.get_data_writable(HostSpace);
+
+      for (int row = 0; row < num_rows; row++) {
+        for (int column = 0; column < num_columns; column++) {
+          board_data[row * num_columns + column].current_neighbors =
+              countLiveNeighbors(board_data, row, column, num_rows, num_columns);
+        }
       }
     }
     std::cout << std::format("Initial Generation:\n");
-    viewBoard(current_generation.get_data(HostSpace), num_rows, num_columns);
+    viewBoard(board.get_data(HostSpace), num_rows, num_columns);
 
     // Step simulation through generations
     const int num_steps = readUserInput("steps", 10, 1, std::numeric_limits<int>::max());
@@ -305,12 +326,10 @@ int main(int argc, char **argv) {
     for (auto generation = 0; generation < num_steps; generation++) {
       // -- Step the simulation
       std::cout << "!-- Executing core function in Kokkos (device) memory -----------------\n";
-      stepGeneration(current_generation.get_data(), next_generation.get_data_writable(), num_rows, num_columns,
-                     min_birth, max_birth, min_remain, max_remain);
-      std::swap(current_generation, next_generation);
+      stepGeneration(board.get_data_writable(), num_rows, num_columns, min_birth, max_birth, min_remain, max_remain);
       // -- And finally view the new board
       std::cout << std::format("Generation {}:\n", generation + 1);
-      viewBoard(current_generation.get_data(HostSpace), num_rows, num_columns);
+      viewBoard(board.get_data(HostSpace), num_rows, num_columns);
     }
   }
 

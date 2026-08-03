@@ -39,13 +39,13 @@ static int readUserInput(const std::string &prompt, const int default_value, con
 /**
  @brief Displays the current state of the board.
 
- @param board       A vector of boolean values (encoded as integers) representing the board state.
+ @param board       A vector of boolean values representing the board state.
  @param num_rows    The number of rows in the board.
  @param num_columns The number of columns in the board.
 
  @return none
 **/
-static void viewBoard(const std::vector<int> &board, const int num_rows, const int num_columns) {
+static void viewBoard(const std::vector<bool> &board, const int num_rows, const int num_columns) {
   // Assumes row contents are contiguous
   std::cout << "|";
   for (int column = 0; column < num_columns; column++) {
@@ -77,7 +77,7 @@ static void viewBoard(const std::vector<int> &board, const int num_rows, const i
 
  @return The number of live neighbors.
 **/
-static int countLiveNeighbors(const std::vector<int> &board, const int row, const int column, const int num_rows,
+static int countLiveNeighbors(const std::vector<bool> &board, const int row, const int column, const int num_rows,
                               const int num_columns) {
   auto neighbor_count = 0;
 
@@ -111,7 +111,7 @@ static int countLiveNeighbors(const std::vector<int> &board, const int row, cons
 
  @return none
 **/
-static void stepGeneration(const std::vector<int> &current_generation, std::vector<int> &next_generation,
+static void stepGeneration(const std::vector<bool> &current_generation, std::vector<bool> &next_generation,
                            const int num_rows, const int num_columns, const int min_birth, const int max_birth,
                            const int min_remain, const int max_remain) {
   // Loop over each cell
@@ -148,9 +148,8 @@ int main(int argc, char **argv) {
   const int max_remain = readUserInput("Enter the maximum number of live neighbors for cell retention", 3, 0, 8);
 
   // Initialize
-  // -- Note, using ints here instead of bools because Kokkos does not have views (vecs) of bools
-  std::vector<int> current_generation(num_rows * num_columns, 0);
-  std::vector<int> next_generation(num_rows * num_columns, 0);
+  std::vector<bool> current_generation(num_rows * num_columns, false);
+  std::vector<bool> next_generation(num_rows * num_columns, false);
 
   // -- Reference checkerboard implementation
   const bool use_checkerboard =
@@ -163,8 +162,8 @@ int main(int argc, char **argv) {
       }
     }
   } else {
-    for (auto &cell : current_generation) {
-      cell = rand() % 2;
+    for (auto cell = 0; cell < num_rows * num_columns; ++cell) {
+      current_generation[cell] = rand() % 2;
     }
   }
   std::cout << std::format("Initial Generation:\n");
