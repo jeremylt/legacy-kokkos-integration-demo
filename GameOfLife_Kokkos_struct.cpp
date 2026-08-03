@@ -2,6 +2,7 @@
  @file GameOfLife_Kokkos.cpp
 
  @brief Implementation of the Game of Life simulation with execution on GPU using Kokkos.
+        In this file, we show using a more advanced View with a user defined struct.
 **/
 
 #include <Kokkos_Core.hpp>
