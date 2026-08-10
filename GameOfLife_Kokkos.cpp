@@ -63,7 +63,7 @@ public:
 
   @return bool, if host memory space is up to date.
   **/
-  bool is_host_sync() const {
+  bool is_sync_host() const {
     if (!is_dual_valid_)
       return true;
     return view_dual_.need_sync_device() || !view_dual_.need_sync_host();
@@ -74,7 +74,7 @@ public:
 
   @return bool, if device memory space is up to date.
   **/
-  bool is_device_sync() const {
+  bool is_device_host() const {
     if (!is_dual_valid_)
       return false;
     return view_dual_.need_sync_host() || !view_dual_.need_sync_device();
@@ -321,11 +321,11 @@ int main(int argc, char **argv) {
     std::cout << std::format("Initial Generation:\n");
     viewBoard(current_generation.get_data(HostSpace), num_rows, num_columns);
     std::cout << std::format("!-- Host memory {} up to date {}-------------------------------------\n",
-                             current_generation.is_host_sync() ? "is" : "is not",
-                             current_generation.is_host_sync() ? "----" : "");
+                             current_generation.is_sync_host() ? "is" : "is not",
+                             current_generation.is_sync_host() ? "----" : "");
     std::cout << std::format("!-- Device memory {} up to date {}-----------------------------------\n\n",
-                             current_generation.is_device_sync() ? "is" : "is not",
-                             current_generation.is_device_sync() ? "----" : "");
+                             current_generation.is_device_host() ? "is" : "is not",
+                             current_generation.is_device_host() ? "----" : "");
 
     // Step simulation through generations
     const int num_steps = readUserInput("steps", 10, 1, std::numeric_limits<int>::max());
@@ -337,20 +337,20 @@ int main(int argc, char **argv) {
                      min_birth, max_birth, min_remain, max_remain);
       std::swap(current_generation, next_generation);
       std::cout << std::format("!-- Host memory {} up to date {}-------------------------------------\n",
-                               current_generation.is_host_sync() ? "is" : "is not",
-                               current_generation.is_host_sync() ? "----" : "");
+                               current_generation.is_sync_host() ? "is" : "is not",
+                               current_generation.is_sync_host() ? "----" : "");
       std::cout << std::format("!-- Device memory {} up to date {}-----------------------------------\n\n",
-                               current_generation.is_device_sync() ? "is" : "is not",
-                               current_generation.is_device_sync() ? "----" : "");
+                               current_generation.is_device_host() ? "is" : "is not",
+                               current_generation.is_device_host() ? "----" : "");
       // -- And finally view the new board
       std::cout << std::format("Generation {}:\n", generation + 1);
       viewBoard(current_generation.get_data(HostSpace), num_rows, num_columns);
       std::cout << std::format("!-- Host memory {} up to date {}-------------------------------------\n",
-                               current_generation.is_host_sync() ? "is" : "is not",
-                               current_generation.is_host_sync() ? "----" : "");
+                               current_generation.is_sync_host() ? "is" : "is not",
+                               current_generation.is_sync_host() ? "----" : "");
       std::cout << std::format("!-- Device memory {} up to date {}-----------------------------------\n\n",
-                               current_generation.is_device_sync() ? "is" : "is not",
-                               current_generation.is_device_sync() ? "----" : "");
+                               current_generation.is_device_host() ? "is" : "is not",
+                               current_generation.is_device_host() ? "----" : "");
     }
   }
 
