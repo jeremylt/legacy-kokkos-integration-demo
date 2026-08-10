@@ -130,21 +130,16 @@ public:
   @return Writable pointer to underlying data in target memory space.
   **/
   inline CellData *get_data_writable(MemorySpace space = DefaultSpace) {
-    if (space == DefaultSpace) {
-      if (!is_dual_valid_) {
-        init_dual_view();
+    CellData *data = const_cast<CellData *>(const_cast<const DataContainer &>(*this).get_data(space));
+
+    if (is_dual_valid_) {
+      if (space == DefaultSpace) {
+        view_dual_.modify_device();
+      } else {
+        view_dual_.modify_host();
       }
-      view_dual_.sync_device();
-      view_dual_.modify_device();
-      return view_dual_.view_device().data();
-    } else {
-      if (!is_dual_valid_) {
-        return view_host_.data();
-      }
-      view_dual_.sync_host();
-      view_dual_.modify_host();
-      return view_dual_.view_host().data();
     }
+    return data;
   }
 };
 
