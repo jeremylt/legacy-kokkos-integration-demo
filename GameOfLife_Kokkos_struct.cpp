@@ -39,6 +39,10 @@ private:
   mutable Kokkos::DualView<CellData *> view_dual_;
   // Flag for valid DualView
   mutable bool is_dual_valid_ = false;
+  // Flag for host modified
+  mutable bool is_modified_host = false;
+  // Flag for device modified
+  mutable bool is_modified_device = false;
 
   /**
     @brief Create a device memory space when requested.
@@ -71,6 +75,28 @@ public:
   void setup(const std::string &name, int container_size) {
     view_host_ = Kokkos::View<CellData *, Kokkos::HostSpace>(name, container_size);
     is_dual_valid_ = false;
+  }
+
+  /**
+    @brief Report if host memory space is up to date.
+
+  @return bool, if host memory space is up to date.
+  **/
+  bool is_host_sync() const {
+    if (!is_dual_valid_)
+      return true;
+    return view_dual_.need_sync_device() || !view_dual_.need_sync_host();
+  }
+
+  /**
+    @brief Report if device memory space is up to date.
+
+  @return bool, if device memory space is up to date.
+  **/
+  bool is_device_sync() const {
+    if (!is_dual_valid_)
+      return false;
+    return view_dual_.need_sync_host() || !view_dual_.need_sync_device();
   }
 
   /**
@@ -320,6 +346,10 @@ int main(int argc, char **argv) {
     }
     std::cout << std::format("Initial Generation:\n");
     viewBoard(board.get_data(HostSpace), num_rows, num_columns);
+    std::cout << std::format("!-- Host memory {} up to date {}-------------------------------------\n",
+                             board.is_host_sync() ? "is" : "is not", board.is_host_sync() ? "----" : "");
+    std::cout << std::format("!-- Device memory {} up to date {}-----------------------------------\n\n",
+                             board.is_device_sync() ? "is" : "is not", board.is_device_sync() ? "----" : "");
 
     // Step simulation through generations
     const int num_steps = readUserInput("steps", 10, 1, std::numeric_limits<int>::max());
@@ -328,9 +358,17 @@ int main(int argc, char **argv) {
       // -- Step the simulation
       std::cout << "!-- Executing core function in Kokkos (device) memory -----------------\n";
       stepGeneration(board.get_data_writable(), num_rows, num_columns, min_birth, max_birth, min_remain, max_remain);
+      std::cout << std::format("!-- Host memory {} up to date {}-------------------------------------\n",
+                               board.is_host_sync() ? "is" : "is not", board.is_host_sync() ? "----" : "");
+      std::cout << std::format("!-- Device memory {} up to date {}-----------------------------------\n\n",
+                               board.is_device_sync() ? "is" : "is not", board.is_device_sync() ? "----" : "");
       // -- And finally view the new board
       std::cout << std::format("Generation {}:\n", generation + 1);
       viewBoard(board.get_data(HostSpace), num_rows, num_columns);
+      std::cout << std::format("!-- Host memory {} up to date {}-------------------------------------\n",
+                               board.is_host_sync() ? "is" : "is not", board.is_host_sync() ? "----" : "");
+      std::cout << std::format("!-- Device memory {} up to date {}-----------------------------------\n\n",
+                               board.is_device_sync() ? "is" : "is not", board.is_device_sync() ? "----" : "");
     }
   }
 
