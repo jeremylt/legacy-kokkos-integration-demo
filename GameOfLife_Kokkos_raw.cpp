@@ -247,7 +247,7 @@ int main(int argc, char **argv) {
     Kokkos::View<char *> next_generation_view("next generation", next_generation.size());
 
     // Step simulation through generations
-    const int num_steps = readUserInput("steps", 10, 1, std::numeric_limits<int>::max());
+    const int num_steps = readUserInput("Enter the number of generations", 10, 1, std::numeric_limits<int>::max());
 
     for (auto generation = 0; generation < num_steps; generation++) {
       // -- Step the simulation

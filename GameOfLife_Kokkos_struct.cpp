@@ -365,7 +365,7 @@ int main(int argc, char **argv) {
     viewBoard(board.get_data(MemorySpace::Host), num_rows, num_columns);
 
     // Step simulation through generations
-    const int num_steps = readUserInput("steps", 10, 1, std::numeric_limits<int>::max());
+    const int num_steps = readUserInput("Enter the number of generations", 10, 1, std::numeric_limits<int>::max());
 
     for (auto generation = 0; generation < num_steps; generation++) {
       // -- Step the simulation
