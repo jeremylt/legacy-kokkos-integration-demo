@@ -23,7 +23,7 @@ private:
   // Kokkos DualView
   mutable Kokkos::DualView<bool *> view_dual_;
   // Flag for valid DualView
-  mutable bool is_dual_valid_ = false;
+  mutable bool is_valid_dual_ = false;
 
   /**
     @brief Create a device memory space when requested.
@@ -33,15 +33,15 @@ private:
 
   @return none
   **/
-  inline void init_dual_view() const {
-    if (is_dual_valid_)
+  inline void init_view_dual() const {
+    if (is_valid_dual_)
       return;
     // Need to create mirror view in default space and copy the data over
     // Using a mirror view prevents a double allocation if the default space is on the host
     Kokkos::View<bool *> view_device =
         Kokkos::create_mirror_view_and_copy(Kokkos::DefaultExecutionSpace::memory_space(), view_host_);
     view_dual_ = Kokkos::DualView<bool *>(view_device, view_host_);
-    is_dual_valid_ = true;
+    is_valid_dual_ = true;
   }
 
 public:
@@ -55,7 +55,7 @@ public:
   **/
   void setup(const std::string &name, int container_size) {
     view_host_ = Kokkos::View<bool *, Kokkos::HostSpace>(name, container_size);
-    is_dual_valid_ = false;
+    is_valid_dual_ = false;
   }
 
   /**
@@ -64,7 +64,7 @@ public:
   @return bool, if host memory space is up to date.
   **/
   bool is_sync_host() const {
-    if (!is_dual_valid_)
+    if (!is_valid_dual_)
       return true;
     return view_dual_.need_sync_device() || !view_dual_.need_sync_host();
   }
@@ -75,7 +75,7 @@ public:
   @return bool, if device memory space is up to date.
   **/
   bool is_device_host() const {
-    if (!is_dual_valid_)
+    if (!is_valid_dual_)
       return false;
     return view_dual_.need_sync_host() || !view_dual_.need_sync_device();
   }
@@ -89,15 +89,13 @@ public:
   **/
   inline const bool *get_data(MemorySpace space = DefaultSpace) const {
     if (space == DefaultSpace) {
-      if (!is_dual_valid_) {
-        init_dual_view();
-      }
+      if (!is_valid_dual_)
+        init_view_dual();
       view_dual_.sync_device();
       return view_dual_.view_device().data();
     } else {
-      if (!is_dual_valid_) {
+      if (!is_valid_dual_)
         return view_host_.data();
-      }
       view_dual_.sync_host();
       return view_dual_.view_host().data();
     }
@@ -113,12 +111,11 @@ public:
   inline bool *get_data_writable(MemorySpace space = DefaultSpace) {
     bool *data = const_cast<bool *>(const_cast<const DataContainer &>(*this).get_data(space));
 
-    if (is_dual_valid_) {
-      if (space == DefaultSpace) {
+    if (is_valid_dual_) {
+      if (space == DefaultSpace)
         view_dual_.modify_device();
-      } else {
+      else
         view_dual_.modify_host();
-      }
     }
     return data;
   }
