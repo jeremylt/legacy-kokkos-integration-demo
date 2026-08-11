@@ -9,20 +9,29 @@
 #include <Kokkos_DualView.hpp>
 #include <format>
 #include <iostream>
+#include <map>
 #include <string>
 #include <vector>
 
-enum MemorySpace {
-  DefaultSpace, // Device data access
-  HostSpace,    // Host data access
+enum class MemorySpace {
+  Default, // Device data access
+  Host,    // Host data access
 };
+
+// Checking that Kokkos supports both enums and enum classes
+enum class CellState {
+  Alive, // Cell is alive
+  Dead,  // And dead, as it says
+};
+
+std::map<CellState, std::string> cellStateToString = {{CellState::Alive, "X"}, {CellState::Dead, "."}};
 
 // This struct is here to demonstrate that Kokkos views can use custom data types!
 struct CellData final {
   // State
-  bool is_alive;
+  CellState current_state;
   // Old state
-  bool was_alive;
+  CellState previous_state;
   // Did the state flip
   bool is_changed;
   // Previous neighbors
@@ -102,13 +111,29 @@ public:
 
   @return Read only pointer to underlying data in target memory space.
   **/
-  inline const CellData *get_data(MemorySpace space = DefaultSpace) const {
-    if (space == DefaultSpace) {
-      if (!is_valid_dual_)
+  inline const CellData *get_data(MemorySpace space = MemorySpace::Default) const {
+    std::cout << std::format("\n!-- {} memory requested {}-------------------------------------------\n",
+                             space == MemorySpace::Default ? "Device" : "Host",
+                             space == MemorySpace::Default ? "" : "--");
+    std::cout << std::format("!-- Dual view {} initialized {}--------------------------------------\n",
+                             is_valid_dual_ ? "is" : "is not", is_valid_dual_ ? "----" : "");
+    std::cout << std::format("!-- Host memory {} up to date {}-------------------------------------\n",
+                             is_sync_host() ? "is" : "is not", is_sync_host() ? "----" : "");
+    std::cout << std::format("!-- Device memory {} up to date {}-----------------------------------\n\n",
+                             is_sync_device() ? "is" : "is not", is_sync_device() ? "----" : "");
+    if (space == MemorySpace::Default) {
+      if (!is_valid_dual_) {
+        std::cout << std::format("!-- Initializing dual view --------------------------------------------\n");
+        std::cout << std::format("!-- Copying from host to device ---------------------------------------\n\n");
         init_view_dual();
+      }
+      if (!is_sync_device())
+        std::cout << std::format("!-- Copying from host to device ---------------------------------------\n\n");
       view_dual_.sync_device();
       return view_dual_.view_device().data();
     } else {
+      if (!is_sync_host())
+        std::cout << std::format("!-- Copying from device to host ---------------------------------------\n\n");
       if (!is_valid_dual_)
         return view_host_.data();
       view_dual_.sync_host();
@@ -123,11 +148,11 @@ public:
 
   @return Writable pointer to underlying data in target memory space.
   **/
-  inline CellData *get_data_writable(MemorySpace space = DefaultSpace) {
+  inline CellData *get_data_writable(MemorySpace space = MemorySpace::Default) {
     CellData *data = const_cast<CellData *>(const_cast<const DataContainer &>(*this).get_data(space));
 
     if (is_valid_dual_) {
-      if (space == DefaultSpace)
+      if (space == MemorySpace::Default)
         view_dual_.modify_device();
       else
         view_dual_.modify_host();
@@ -182,7 +207,7 @@ static void viewBoard(const CellData *board, int num_rows, int num_columns) {
   for (int row = 0; row < num_rows; row++) {
     std::cout << "|";
     for (int column = 0; column < num_columns; column++) {
-      std::cout << (board[row * num_columns + column].is_alive ? "X" : ".");
+      std::cout << cellStateToString[board[row * num_columns + column].current_state];
     }
     std::cout << "|\n";
   }
@@ -221,7 +246,7 @@ KOKKOS_INLINE_FUNCTION int countLiveNeighbors(const CellData *board, const int r
       if (neighbor_row == row && neighbor_column == column) {
         continue;
       }
-      neighbor_count += board[neighbor_row * num_columns + neighbor_column].was_alive;
+      neighbor_count += board[neighbor_row * num_columns + neighbor_column].previous_state == CellState::Alive;
     }
   }
   return neighbor_count;
@@ -256,8 +281,8 @@ static void stepGeneration(CellData *board, const int num_rows, const int num_co
                                                     "be compiled out if Kokkos was built correctly! --\n");))
         board[row * num_columns + column].previous_neighbors = board[row * num_columns + column].current_neighbors;
         board[row * num_columns + column].is_changed =
-            board[row * num_columns + column].is_alive == board[row * num_columns + column].was_alive;
-        board[row * num_columns + column].was_alive = board[row * num_columns + column].is_alive;
+            board[row * num_columns + column].current_state == board[row * num_columns + column].previous_state;
+        board[row * num_columns + column].previous_state = board[row * num_columns + column].current_state;
       });
   // Loop over each cell
   // -- Then update the new current values
@@ -269,10 +294,13 @@ static void stepGeneration(CellData *board, const int num_rows, const int num_co
 
         // Grow/live if 2-3 neighbors, otherwise die
         // -- Note that the variables min_* and max_* are captured automatically, we only need to manage arrays
-        auto was_alive = board[row * num_columns + column].was_alive;
-        auto is_alive = (was_alive && neighbor_count >= min_birth && neighbor_count <= max_birth) ||
-                        (neighbor_count >= min_remain && neighbor_count <= max_remain);
-        board[row * num_columns + column].is_alive = is_alive;
+        auto previous_state = board[row * num_columns + column].previous_state;
+        auto current_state =
+            (previous_state == CellState::Alive && neighbor_count >= min_birth && neighbor_count <= max_birth) ||
+                    (neighbor_count >= min_remain && neighbor_count <= max_remain)
+                ? CellState::Alive
+                : CellState::Dead;
+        board[row * num_columns + column].current_state = current_state;
       });
 }
 
@@ -307,23 +335,24 @@ int main(int argc, char **argv) {
         readUserInput("Use checkerboard pattern? (0 for no, otherwise yes)", 1, 0, std::numeric_limits<int>::max());
 
     if (use_checkerboard) {
-      auto board_data = board.get_data_writable(HostSpace);
+      auto board_data = board.get_data_writable(MemorySpace::Host);
 
       for (int row = 0; row < num_rows; row++) {
         for (int column = 0; column < num_columns; column++) {
-          board_data[row * num_columns + column].is_alive = (row + column) % 2;
+          board_data[row * num_columns + column].current_state =
+              (row + column) % 2 ? CellState::Alive : CellState::Dead;
         }
       }
     } else {
-      auto board_data = board.get_data_writable(HostSpace);
+      auto board_data = board.get_data_writable(MemorySpace::Host);
 
       for (auto cell = 0; cell < num_rows * num_columns; ++cell) {
-        board_data[cell].is_alive = rand() % 2;
+        board_data[cell].current_state = rand() % 2 ? CellState::Alive : CellState::Dead;
       }
     }
     // And set the history data
     {
-      auto board_data = board.get_data_writable(HostSpace);
+      auto board_data = board.get_data_writable(MemorySpace::Host);
 
       for (int row = 0; row < num_rows; row++) {
         for (int column = 0; column < num_columns; column++) {
@@ -333,11 +362,7 @@ int main(int argc, char **argv) {
       }
     }
     std::cout << std::format("Initial Generation:\n");
-    viewBoard(board.get_data(HostSpace), num_rows, num_columns);
-    std::cout << std::format("!-- Host memory {} up to date {}-------------------------------------\n",
-                             board.is_sync_host() ? "is" : "is not", board.is_sync_host() ? "----" : "");
-    std::cout << std::format("!-- Device memory {} up to date {}-----------------------------------\n\n",
-                             board.is_sync_device() ? "is" : "is not", board.is_sync_device() ? "----" : "");
+    viewBoard(board.get_data(MemorySpace::Host), num_rows, num_columns);
 
     // Step simulation through generations
     const int num_steps = readUserInput("steps", 10, 1, std::numeric_limits<int>::max());
@@ -346,17 +371,9 @@ int main(int argc, char **argv) {
       // -- Step the simulation
       std::cout << "!-- Executing core function in Kokkos (device) memory -----------------\n";
       stepGeneration(board.get_data_writable(), num_rows, num_columns, min_birth, max_birth, min_remain, max_remain);
-      std::cout << std::format("!-- Host memory {} up to date {}-------------------------------------\n",
-                               board.is_sync_host() ? "is" : "is not", board.is_sync_host() ? "----" : "");
-      std::cout << std::format("!-- Device memory {} up to date {}-----------------------------------\n\n",
-                               board.is_sync_device() ? "is" : "is not", board.is_sync_device() ? "----" : "");
       // -- And finally view the new board
-      std::cout << std::format("Generation {}:\n", generation + 1);
-      viewBoard(board.get_data(HostSpace), num_rows, num_columns);
-      std::cout << std::format("!-- Host memory {} up to date {}-------------------------------------\n",
-                               board.is_sync_host() ? "is" : "is not", board.is_sync_host() ? "----" : "");
-      std::cout << std::format("!-- Device memory {} up to date {}-----------------------------------\n\n",
-                               board.is_sync_device() ? "is" : "is not", board.is_sync_device() ? "----" : "");
+      std::cout << std::format("\n\nGeneration {}:\n", generation + 1);
+      viewBoard(board.get_data(MemorySpace::Host), num_rows, num_columns);
     }
   }
 
