@@ -39,10 +39,6 @@ private:
   mutable Kokkos::DualView<CellData *> view_dual_;
   // Flag for valid DualView
   mutable bool is_dual_valid_ = false;
-  // Flag for host modified
-  mutable bool is_modified_host = false;
-  // Flag for device modified
-  mutable bool is_modified_device = false;
 
   /**
     @brief Create a device memory space when requested.
