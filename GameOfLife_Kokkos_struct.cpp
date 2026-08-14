@@ -90,7 +90,7 @@ public:
   bool is_sync_host() const {
     if (!is_valid_dual_)
       return true;
-    return view_dual_.need_sync_device() || !view_dual_.need_sync_host();
+    return view_dual_.need_sync<Kokkos::DefaultExecutionSpace>() || !view_dual_.need_sync<Kokkos::HostSpace>();
   }
 
   /**
@@ -101,7 +101,7 @@ public:
   bool is_sync_device() const {
     if (!is_valid_dual_)
       return false;
-    return view_dual_.need_sync_host() || !view_dual_.need_sync_device();
+    return view_dual_.need_sync<Kokkos::HostSpace>() || !view_dual_.need_sync<Kokkos::DefaultExecutionSpace>();
   }
 
   /**
@@ -129,15 +129,15 @@ public:
       }
       if (!is_sync_device())
         std::cout << std::format("!-- Copying from host to device ---------------------------------------\n\n");
-      view_dual_.sync_device();
-      return view_dual_.view_device().data();
+      view_dual_.sync<Kokkos::DefaultExecutionSpace>();
+      return view_dual_.view<Kokkos::DefaultExecutionSpace>().data();
     } else {
       if (!is_sync_host())
         std::cout << std::format("!-- Copying from device to host ---------------------------------------\n\n");
       if (!is_valid_dual_)
         return view_host_.data();
-      view_dual_.sync_host();
-      return view_dual_.view_host().data();
+      view_dual_.sync<Kokkos::HostSpace>();
+      return view_dual_.view<Kokkos::HostSpace>().data();
     }
   }
 
