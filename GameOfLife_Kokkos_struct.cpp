@@ -153,9 +153,9 @@ public:
 
     if (is_valid_dual_) {
       if (space == MemorySpace::Default)
-        view_dual_.modify_device();
+        view_dual_.modify<Kokkos::DefaultExecutionSpace>();
       else
-        view_dual_.modify_host();
+        view_dual_.modify<Kokkos::HostSpace>();
     }
     return data;
   }
