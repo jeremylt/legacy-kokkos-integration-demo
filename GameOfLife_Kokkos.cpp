@@ -198,6 +198,28 @@ static void viewBoard(const bool *board, const int num_rows, const int num_colum
 }
 
 /**
+ @brief Display timing statistics.
+
+ @param times Vector of timing data, in miliseconds.
+
+ @return none
+**/
+static void viewTimingStatistics(const std::vector<long int> &times) {
+  const long int min = *std::ranges::min_element(times);
+  const long int max = *std::ranges::max_element(times);
+  double average = 0;
+
+  for (auto time : times) {
+    average += (1.0 * time) / times.size();
+  }
+
+  std::cout << std::format("Timing information:\n");
+  std::cout << std::format("  min: {} ns\n", min);
+  std::cout << std::format("  max: {} ns\n", max);
+  std::cout << std::format("  average: {} ns\n", average);
+}
+
+/**
  @brief Counts the number of live neighbors for a given cell.
 
  @param board       The current state of the board.
@@ -356,18 +378,7 @@ int main(int argc, char **argv) {
   }
 
   // Timing info
-  const long int min = *std::ranges::min_element(times);
-  const long int max = *std::ranges::max_element(times);
-  double average = 0;
-
-  for (auto time : times) {
-    average += (1.0 * time) / times.size();
-  }
-
-  std::cout << std::format("Timing information:\n");
-  std::cout << std::format("  min: {} ns\n", min);
-  std::cout << std::format("  max: {} ns\n", max);
-  std::cout << std::format("  average: {} ns\n", average);
+  viewTimingStatistics(times);
 
   // Cleanup
   Kokkos::finalize();

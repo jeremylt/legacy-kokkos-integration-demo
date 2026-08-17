@@ -244,6 +244,28 @@ static void viewLiveCount(const CellData *board, int num_cells) {
 }
 
 /**
+ @brief Display timing statistics.
+
+ @param times Vector of timing data, in miliseconds.
+
+ @return none
+**/
+static void viewTimingStatistics(const std::vector<long int> &times) {
+  const long int min = *std::ranges::min_element(times);
+  const long int max = *std::ranges::max_element(times);
+  double average = 0;
+
+  for (auto time : times) {
+    average += (1.0 * time) / times.size();
+  }
+
+  std::cout << std::format("Timing information:\n");
+  std::cout << std::format("  min: {} ns\n", min);
+  std::cout << std::format("  max: {} ns\n", max);
+  std::cout << std::format("  average: {} ns\n", average);
+}
+
+/**
  @brief Counts the number of live neighbors for a given cell.
 
  @param board       The current state of the board.
@@ -340,6 +362,7 @@ int main(int argc, char **argv) {
 
   // Timing data
   std::vector<long int> times;
+  std::vector<long int> times_memory;
 
   // Input sizes
   const int num_rows = readUserInput("Enter the number of rows", 1080, 1, std::numeric_limits<int>::max());
@@ -399,32 +422,33 @@ int main(int argc, char **argv) {
     for (auto generation = 0; generation < num_steps; generation++) {
       // -- Step the simulation
       std::cout << "!-- Executing core function in Kokkos (device) memory -----------------\n";
-      const auto start_time = std::chrono::steady_clock::now();
+      {
+        const auto start_time = std::chrono::steady_clock::now();
 
-      stepGeneration(board.get_data_writable(), num_rows, num_columns, min_birth, max_birth, min_remain, max_remain);
-      times.push_back(
-          std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - start_time).count());
+        stepGeneration(board.get_data_writable(), num_rows, num_columns, min_birth, max_birth, min_remain, max_remain);
+        times.push_back(
+            std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - start_time)
+                .count());
+      }
 
       // -- And finally view the new board
       std::cout << std::format("\n\nGeneration {}:\n", generation + 1);
-      viewBoard(board.get_data(MemorySpace::Host), num_rows, num_columns);
+      {
+        const auto start_time = std::chrono::steady_clock::now();
+        const auto host_ptr = board.get_data(MemorySpace::Host);
+
+        viewBoard(host_ptr, num_rows, num_columns);
+        times_memory.push_back(
+            std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - start_time)
+                .count());
+      }
       viewLiveCount(board.get_data(MemorySpace::Default), num_rows * num_columns);
     }
   }
 
   // Timing info
-  const long int min = *std::ranges::min_element(times);
-  const long int max = *std::ranges::max_element(times);
-  double average = 0;
-
-  for (auto time : times) {
-    average += (1.0 * time) / times.size();
-  }
-
-  std::cout << std::format("Timing information:\n");
-  std::cout << std::format("  min: {} ns\n", min);
-  std::cout << std::format("  max: {} ns\n", max);
-  std::cout << std::format("  average: {} ns\n", average);
+  viewTimingStatistics(times);
+  viewTimingStatistics(times_memory);
 
   // Cleanup
   Kokkos::finalize();
