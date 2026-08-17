@@ -4,8 +4,11 @@
  @brief Reference implementation of the Game of Life simulation with execution only on CPU.
 **/
 
+#include <chrono>
 #include <format>
 #include <iostream>
+#include <numeric>
+#include <ranges>
 #include <string>
 #include <vector>
 
@@ -135,6 +138,9 @@ static void stepGeneration(const std::vector<bool> &current_generation, std::vec
  @return 0 on successful execution.
 **/
 int main(int argc, char **argv) {
+  // Timing data
+  std::vector<long int> times;
+
   // Input sizes
   const int num_rows = readUserInput("Enter the number of rows", 1080, 1, std::numeric_limits<int>::max());
   const int num_columns = readUserInput("Enter the number of columns", 1920, 1, std::numeric_limits<int>::max());
@@ -174,11 +180,31 @@ int main(int argc, char **argv) {
 
   for (auto generation = 0; generation < num_steps; generation++) {
     // -- Step the simulation
+    const auto start_time = std::chrono::steady_clock::now();
+
     stepGeneration(current_generation, next_generation, num_rows, num_columns, min_birth, max_birth, min_remain,
                    max_remain);
+    times.push_back(
+        std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - start_time).count());
+
     std::swap(current_generation, next_generation);
     // -- And view the new board
     viewBoard(current_generation, num_rows, num_columns);
   }
+
+  // Timing info
+  const long int min = *std::min_element(times.begin(), times.end());
+  const long int max = *std::max_element(times.begin(), times.end());
+  double average = 0;
+
+  for (auto time : times) {
+    average += (1.0 * time) / times.size();
+  }
+
+  std::cout << std::format("Timing information:\n");
+  std::cout << std::format("  min: {} ns\n", min);
+  std::cout << std::format("  max: {} ns\n", max);
+  std::cout << std::format("  average: {} ns\n", average);
+
   return 0;
 }

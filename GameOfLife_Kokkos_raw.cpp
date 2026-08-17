@@ -6,8 +6,11 @@
 **/
 
 #include <Kokkos_Core.hpp>
+#include <chrono>
 #include <format>
 #include <iostream>
+#include <numeric>
+#include <ranges>
 #include <string>
 #include <vector>
 
@@ -190,6 +193,9 @@ int main(int argc, char **argv) {
   // Initialize Kokkos runtime
   Kokkos::initialize(argc, argv);
 
+  // Timing data
+  std::vector<long int> times;
+
   // Input sizes
   const int num_rows = readUserInput("Enter the number of rows", 1080, 1, std::numeric_limits<int>::max());
   const int num_columns = readUserInput("Enter the number of columns", 1920, 1, std::numeric_limits<int>::max());
@@ -252,8 +258,13 @@ int main(int argc, char **argv) {
     for (auto generation = 0; generation < num_steps; generation++) {
       // -- Step the simulation
       std::cout << "!-- Executing core function in Kokkos (device) memory -----------------\n";
+      const auto start_time = std::chrono::steady_clock::now();
+
       stepGeneration(current_generation_view, next_generation_view, num_rows, num_columns, min_birth, max_birth,
                      max_remain, max_remain);
+      times.push_back(
+          std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - start_time).count());
+
       std::swap(current_generation_view, next_generation_view);
       // -- And finally view the new board
       // ---- I am pulling down to host for this to use the existing legacy CPU side helper function.
@@ -270,6 +281,20 @@ int main(int argc, char **argv) {
     std::cout << "!-- Copying previous generation from Kokkos (device) to Legacy (host) --\n";
     syncToLegacyHost(next_generation_view, next_generation);
   }
+
+  // Timing info
+  const long int min = *std::min_element(times.begin(), times.end());
+  const long int max = *std::max_element(times.begin(), times.end());
+  double average = 0;
+
+  for (auto time : times) {
+    average += (1.0 * time) / times.size();
+  }
+
+  std::cout << std::format("Timing information:\n");
+  std::cout << std::format("  min: {} ns\n", min);
+  std::cout << std::format("  max: {} ns\n", max);
+  std::cout << std::format("  average: {} ns\n", average);
 
   // Cleanup
   Kokkos::finalize();

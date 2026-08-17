@@ -7,9 +7,12 @@
 
 #include <Kokkos_Core.hpp>
 #include <Kokkos_DualView.hpp>
+#include <chrono>
 #include <format>
 #include <iostream>
 #include <map>
+#include <numeric>
+#include <ranges>
 #include <string>
 #include <vector>
 
@@ -237,7 +240,7 @@ static void viewLiveCount(const CellData *board, int num_cells) {
       },
       Kokkos::Sum<int>(count));
 
-  std::cout << "Total live cells: " << count << "\n\n";
+  std::cout << std::format("Total live cells: {}\n\n", count);
 }
 
 /**
@@ -335,6 +338,9 @@ int main(int argc, char **argv) {
   // Initialize Kokkos runtime
   Kokkos::initialize(argc, argv);
 
+  // Timing data
+  std::vector<long int> times;
+
   // Input sizes
   const int num_rows = readUserInput("Enter the number of rows", 1080, 1, std::numeric_limits<int>::max());
   const int num_columns = readUserInput("Enter the number of columns", 1920, 1, std::numeric_limits<int>::max());
@@ -393,13 +399,32 @@ int main(int argc, char **argv) {
     for (auto generation = 0; generation < num_steps; generation++) {
       // -- Step the simulation
       std::cout << "!-- Executing core function in Kokkos (device) memory -----------------\n";
+      const auto start_time = std::chrono::steady_clock::now();
+
       stepGeneration(board.get_data_writable(), num_rows, num_columns, min_birth, max_birth, min_remain, max_remain);
+      times.push_back(
+          std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - start_time).count());
+
       // -- And finally view the new board
       std::cout << std::format("\n\nGeneration {}:\n", generation + 1);
       viewBoard(board.get_data(MemorySpace::Host), num_rows, num_columns);
       viewLiveCount(board.get_data(MemorySpace::Default), num_rows * num_columns);
     }
   }
+
+  // Timing info
+  const long int min = *std::ranges::min_element(times);
+  const long int max = *std::ranges::max_element(times);
+  double average = 0;
+
+  for (auto time : times) {
+    average += (1.0 * time) / times.size();
+  }
+
+  std::cout << std::format("Timing information:\n");
+  std::cout << std::format("  min: {} ns\n", min);
+  std::cout << std::format("  max: {} ns\n", max);
+  std::cout << std::format("  average: {} ns\n", average);
 
   // Cleanup
   Kokkos::finalize();
