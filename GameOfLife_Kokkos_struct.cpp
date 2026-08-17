@@ -219,6 +219,28 @@ static void viewBoard(const CellData *board, int num_rows, int num_columns) {
 }
 
 /**
+ @brief Display the current number of live cells on the board.
+
+ @param board     The board state in an array of CellData.
+ @param num_cells The number of cells on the board.
+
+ @return none
+**/
+static void viewLiveCount(const CellData *board, int num_cells) {
+  int count = 0;
+
+  Kokkos::parallel_reduce(
+      "live count", Kokkos::RangePolicy<Kokkos::DefaultExecutionSpace>(0, num_cells),
+      KOKKOS_LAMBDA(const int i, int &local_count) {
+        if (board[i].current_state == CellState::Alive)
+          local_count += 1;
+      },
+      Kokkos::Sum<int>(count));
+
+  std::cout << "Total live cells: " << count << "\n\n";
+}
+
+/**
  @brief Counts the number of live neighbors for a given cell.
 
  @param board       The current state of the board.
@@ -363,6 +385,7 @@ int main(int argc, char **argv) {
     }
     std::cout << std::format("Initial Generation:\n");
     viewBoard(board.get_data(MemorySpace::Host), num_rows, num_columns);
+    viewLiveCount(board.get_data(MemorySpace::Default), num_rows * num_columns);
 
     // Step simulation through generations
     const int num_steps = readUserInput("Enter the number of generations", 10, 1, std::numeric_limits<int>::max());
@@ -374,6 +397,7 @@ int main(int argc, char **argv) {
       // -- And finally view the new board
       std::cout << std::format("\n\nGeneration {}:\n", generation + 1);
       viewBoard(board.get_data(MemorySpace::Host), num_rows, num_columns);
+      viewLiveCount(board.get_data(MemorySpace::Default), num_rows * num_columns);
     }
   }
 
