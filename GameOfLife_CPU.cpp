@@ -13,6 +13,35 @@
 #include <vector>
 
 /**
+ @brief Wrap function call in timing data collection macro.
+
+ @param call  Function call to execute.
+ @param times The array of timing values.
+
+ @return None.
+**/
+#define TimedCall(call_, times_)                                                                                       \
+  {                                                                                                                    \
+    const auto start_ = std::chrono::steady_clock::now();                                                              \
+    call_;                                                                                                             \
+    const auto stop_ = std::chrono::steady_clock::now();                                                               \
+    times_.push_back(timeBetween(start_, stop_));                                                                      \
+  }
+
+/**
+ @brief Count nanoseconds between two times.
+
+ @param start The start time.
+ @param stop  The stop time.
+
+ @return The number of nanoseconds between the two times.
+**/
+static long int timeBetween(const std::chrono::steady_clock::time_point &start,
+                            const std::chrono::steady_clock::time_point &stop) {
+  return std::chrono::duration_cast<std::chrono::nanoseconds>(stop - start).count();
+}
+
+/**
  @brief Reads user input for a given parameter with a default value.
 
  @param prompt        The input prompt for the user.
@@ -73,10 +102,11 @@ static void viewBoard(const std::vector<bool> &board, const int num_rows, const 
  @brief Display timing statistics.
 
  @param times Vector of timing data, in miliseconds.
+ @param name  Name of the timing data.
 
  @return none
 **/
-static void viewTimingStatistics(const std::vector<long int> &times) {
+static void viewTimingStatistics(const std::vector<long int> &times, const std::string &name) {
   const long int min = *std::min_element(times.begin(), times.end());
   const long int max = *std::max_element(times.begin(), times.end());
   double average = 0;
@@ -85,10 +115,10 @@ static void viewTimingStatistics(const std::vector<long int> &times) {
     average += (1.0 * time) / times.size();
   }
 
-  std::cout << std::format("Timing information:\n");
-  std::cout << std::format("  min: {} ns\n", min);
-  std::cout << std::format("  max: {} ns\n", max);
-  std::cout << std::format("  average: {} ns\n", average);
+  std::cout << std::format("Timing information, {}:\n", name);
+  std::cout << std::format("  min: \t\t{} ns\n", min);
+  std::cout << std::format("  max: \t\t{} ns\n", max);
+  std::cout << std::format("  average: \t{} ns\n", average);
 }
 
 /**
@@ -200,22 +230,22 @@ int main(int argc, char **argv) {
   // Step simulation through generations
   const int num_steps = readUserInput("Enter the number of generations", 10, 1, std::numeric_limits<int>::max());
 
+  const auto start_time = std::chrono::steady_clock::now();
+
   for (auto generation = 0; generation < num_steps; generation++) {
     // -- Step the simulation
-    const auto start_time = std::chrono::steady_clock::now();
-
-    stepGeneration(current_generation, next_generation, num_rows, num_columns, min_birth, max_birth, min_remain,
-                   max_remain);
-    times.push_back(
-        std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - start_time).count());
-
+    TimedCall(stepGeneration(current_generation, next_generation, num_rows, num_columns, min_birth, max_birth,
+                             min_remain, max_remain),
+              times);
     std::swap(current_generation, next_generation);
     // -- And view the new board
     viewBoard(current_generation, num_rows, num_columns);
   }
+  const auto stop_time = std::chrono::steady_clock::now();
 
   // Timing info
-  viewTimingStatistics(times);
+  std::cout << std::format("Total time: \t{}\n\n", timeBetween(start_time, stop_time));
+  viewTimingStatistics(times, "step Generation");
 
   return 0;
 }

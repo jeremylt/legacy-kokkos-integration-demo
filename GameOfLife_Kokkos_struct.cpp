@@ -2,7 +2,8 @@
  @file GameOfLife_Kokkos.cpp
 
  @brief Implementation of the Game of Life simulation with execution on GPU using Kokkos.
-        In this file, we show using a more advanced View with a user defined struct.
+        In this file, we show using a more advanced View with a user defined struct as well as playing with other
+          features. This is a testbed file.
 **/
 
 #include <Kokkos_Core.hpp>
@@ -15,6 +16,35 @@
 #include <ranges>
 #include <string>
 #include <vector>
+
+/**
+ @brief Wrap function call in timing data collection macro.
+
+ @param call  Function call to execute.
+ @param times The array of timing values.
+
+ @return None.
+**/
+#define TimedCall(call_, times_)                                                                                       \
+  {                                                                                                                    \
+    const auto start_ = std::chrono::steady_clock::now();                                                              \
+    call_;                                                                                                             \
+    const auto stop_ = std::chrono::steady_clock::now();                                                               \
+    times_.push_back(timeBetween(start_, stop_));                                                                      \
+  }
+
+/**
+ @brief Count nanoseconds between two times.
+
+ @param start The start time.
+ @param stop  The stop time.
+
+ @return The number of nanoseconds between the two times.
+**/
+static long int timeBetween(const std::chrono::steady_clock::time_point &start,
+                            const std::chrono::steady_clock::time_point &stop) {
+  return std::chrono::duration_cast<std::chrono::nanoseconds>(stop - start).count();
+}
 
 enum class MemorySpace {
   Default, // Device data access
@@ -247,10 +277,11 @@ static void viewLiveCount(const CellData *board, int num_cells) {
  @brief Display timing statistics.
 
  @param times Vector of timing data, in miliseconds.
+ @param name  Name of the timing data.
 
  @return none
 **/
-static void viewTimingStatistics(const std::vector<long int> &times) {
+static void viewTimingStatistics(const std::vector<long int> &times, const std::string &name) {
   const long int min = *std::ranges::min_element(times);
   const long int max = *std::ranges::max_element(times);
   double average = 0;
@@ -259,10 +290,10 @@ static void viewTimingStatistics(const std::vector<long int> &times) {
     average += (1.0 * time) / times.size();
   }
 
-  std::cout << std::format("Timing information:\n");
-  std::cout << std::format("  min: {} ns\n", min);
-  std::cout << std::format("  max: {} ns\n", max);
-  std::cout << std::format("  average: {} ns\n", average);
+  std::cout << std::format("Timing information, {}:\n", name);
+  std::cout << std::format("  min: \t\t{} ns\n", min);
+  std::cout << std::format("  max: \t\t{} ns\n", max);
+  std::cout << std::format("  average: \t{} ns\n", average);
 }
 
 /**
@@ -362,7 +393,7 @@ int main(int argc, char **argv) {
 
   // Timing data
   std::vector<long int> times;
-  std::vector<long int> times_memory;
+  std::vector<long int> times_device_to_host;
 
   // Input sizes
   const int num_rows = readUserInput("Enter the number of rows", 1080, 1, std::numeric_limits<int>::max());
@@ -419,36 +450,29 @@ int main(int argc, char **argv) {
     // Step simulation through generations
     const int num_steps = readUserInput("Enter the number of generations", 10, 1, std::numeric_limits<int>::max());
 
+    const auto start_time = std::chrono::steady_clock::now();
+
     for (auto generation = 0; generation < num_steps; generation++) {
       // -- Step the simulation
       std::cout << "!-- Executing core function in Kokkos (device) memory -----------------\n";
-      {
-        const auto start_time = std::chrono::steady_clock::now();
-
-        stepGeneration(board.get_data_writable(), num_rows, num_columns, min_birth, max_birth, min_remain, max_remain);
-        times.push_back(
-            std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - start_time)
-                .count());
-      }
-
+      TimedCall(stepGeneration(board.get_data_writable(), num_rows, num_columns, min_birth, max_birth, min_remain,
+                               max_remain),
+                times);
       // -- And finally view the new board
       std::cout << std::format("\n\nGeneration {}:\n", generation + 1);
-      {
-        const auto start_time = std::chrono::steady_clock::now();
-        const auto host_ptr = board.get_data(MemorySpace::Host);
-
-        viewBoard(host_ptr, num_rows, num_columns);
-        times_memory.push_back(
-            std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - start_time)
-                .count());
-      }
+      TimedCall(board.get_data(MemorySpace::Host), times_device_to_host);
+      viewBoard(board.get_data(MemorySpace::Host), num_rows, num_columns);
       viewLiveCount(board.get_data(MemorySpace::Default), num_rows * num_columns);
     }
+    const auto stop_time = std::chrono::steady_clock::now();
+
+    // Timing info
+    std::cout << std::format("Total time: \t{}\n\n", timeBetween(start_time, stop_time));
   }
 
   // Timing info
-  viewTimingStatistics(times);
-  viewTimingStatistics(times_memory);
+  viewTimingStatistics(times, "step Generation");
+  viewTimingStatistics(times_device_to_host, "transfer Device to Host");
 
   // Cleanup
   Kokkos::finalize();

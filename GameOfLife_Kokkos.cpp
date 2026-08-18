@@ -14,6 +14,35 @@
 #include <string>
 #include <vector>
 
+/**
+ @brief Wrap function call in timing data collection macro.
+
+ @param call  Function call to execute.
+ @param times The array of timing values.
+
+ @return None.
+**/
+#define TimedCall(call_, times_)                                                                                       \
+  {                                                                                                                    \
+    const auto start_ = std::chrono::steady_clock::now();                                                              \
+    call_;                                                                                                             \
+    const auto stop_ = std::chrono::steady_clock::now();                                                               \
+    times_.push_back(timeBetween(start_, stop_));                                                                      \
+  }
+
+/**
+ @brief Count nanoseconds between two times.
+
+ @param start The start time.
+ @param stop  The stop time.
+
+ @return The number of nanoseconds between the two times.
+**/
+static long int timeBetween(const std::chrono::steady_clock::time_point &start,
+                            const std::chrono::steady_clock::time_point &stop) {
+  return std::chrono::duration_cast<std::chrono::nanoseconds>(stop - start).count();
+}
+
 enum class MemorySpace {
   Default, // Device data access
   Host,    // Host data access
@@ -201,10 +230,11 @@ static void viewBoard(const bool *board, const int num_rows, const int num_colum
  @brief Display timing statistics.
 
  @param times Vector of timing data, in miliseconds.
+ @param name  Name of the timing data.
 
  @return none
 **/
-static void viewTimingStatistics(const std::vector<long int> &times) {
+static void viewTimingStatistics(const std::vector<long int> &times, const std::string &name) {
   const long int min = *std::ranges::min_element(times);
   const long int max = *std::ranges::max_element(times);
   double average = 0;
@@ -213,10 +243,10 @@ static void viewTimingStatistics(const std::vector<long int> &times) {
     average += (1.0 * time) / times.size();
   }
 
-  std::cout << std::format("Timing information:\n");
-  std::cout << std::format("  min: {} ns\n", min);
-  std::cout << std::format("  max: {} ns\n", max);
-  std::cout << std::format("  average: {} ns\n", average);
+  std::cout << std::format("Timing information, {}:\n", name);
+  std::cout << std::format("  min: \t\t{} ns\n", min);
+  std::cout << std::format("  max: \t\t{} ns\n", max);
+  std::cout << std::format("  average: \t{} ns\n", average);
 }
 
 /**
@@ -312,6 +342,7 @@ int main(int argc, char **argv) {
 
   // Timing data
   std::vector<long int> times;
+  std::vector<long int> times_device_to_host;
 
   // Input sizes
   const int num_rows = readUserInput("Enter the number of rows", 1080, 1, std::numeric_limits<int>::max());
@@ -360,25 +391,29 @@ int main(int argc, char **argv) {
     // Step simulation through generations
     const int num_steps = readUserInput("Enter the number of generations", 10, 1, std::numeric_limits<int>::max());
 
+    const auto start_time = std::chrono::steady_clock::now();
+
     for (auto generation = 0; generation < num_steps; generation++) {
       // -- Step the simulation
       std::cout << "!-- Executing core function in Kokkos (device) memory -----------------\n";
-      const auto start_time = std::chrono::steady_clock::now();
-
-      stepGeneration(current_generation.get_data(), next_generation.get_data_writable(), num_rows, num_columns,
-                     min_birth, max_birth, min_remain, max_remain);
-      times.push_back(
-          std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - start_time).count());
-
+      TimedCall(stepGeneration(current_generation.get_data(), next_generation.get_data_writable(), num_rows,
+                               num_columns, min_birth, max_birth, min_remain, max_remain),
+                times);
       std::swap(current_generation, next_generation);
       // -- And finally view the new board
       std::cout << std::format("\n\nGeneration {}:\n", generation + 1);
+      TimedCall(current_generation.get_data(MemorySpace::Host), times_device_to_host);
       viewBoard(current_generation.get_data(MemorySpace::Host), num_rows, num_columns);
     }
+    const auto stop_time = std::chrono::steady_clock::now();
+
+    // Timing info
+    std::cout << std::format("Total time: \t{}\n\n", timeBetween(start_time, stop_time));
   }
 
   // Timing info
-  viewTimingStatistics(times);
+  viewTimingStatistics(times, "step Generation");
+  viewTimingStatistics(times_device_to_host, "transfer Device to Host");
 
   // Cleanup
   Kokkos::finalize();
