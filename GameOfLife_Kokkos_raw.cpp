@@ -328,7 +328,7 @@ int main(int argc, char **argv) {
     const auto stop_time = std::chrono::steady_clock::now();
 
     // Timing info
-    std::cout << std::format("Total time: \t{}\n\n", timeBetween(start_time, stop_time));
+    std::cout << std::format("Total time: \t{} ns\n\n", timeBetween(start_time, stop_time));
 
     // -- Here I am ensuring that the final memory state of both legacy vecs matches what the CPU only version has.
     //      Note that this holds the *previous* generation at this point due to the swaps (in both the legacy code and

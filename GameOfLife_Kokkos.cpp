@@ -408,7 +408,7 @@ int main(int argc, char **argv) {
     const auto stop_time = std::chrono::steady_clock::now();
 
     // Timing info
-    std::cout << std::format("Total time: \t{}\n\n", timeBetween(start_time, stop_time));
+    std::cout << std::format("Total time: \t{} ns\n\n", timeBetween(start_time, stop_time));
   }
 
   // Timing info

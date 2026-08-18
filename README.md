@@ -50,7 +50,7 @@ Here is some sample timing output for 500 generations with 500 rows and 180 colu
 Note this is significantly slower than the GPU runs.
 
 ```
-Total time: 	9,434,616,852
+Total time: 	9,434,616,852 ns
 
 Timing information, step Generation:
   min: 		14,081,797 ns
@@ -63,7 +63,7 @@ Timing information, step Generation:
 Roughly similar performance to the `_raw` version below.
 
 ```
-Total time: 	1,419,575,218
+Total time: 	1,419,575,218 ns
 
 Timing information, step Generation:
   min: 		15,508 ns
@@ -80,7 +80,7 @@ Timing information, transfer Device to Host:
 Roughly the same performance as the more idiomatic Kokkos code above.
 
 ```
-Total time: 	1,465,762,357
+Total time: 	1,465,762,357 ns
 
 Timing information, step Generation:
   min: 		4,157 ns
@@ -98,7 +98,7 @@ Note this is much slower, likely because I'm playing with heavier data to more a
 Also, there is more happening inside of the core simulation loop, such as copying values around from present to past.
 
 ```
-Total time: 	3,168,046,155
+Total time: 	3,168,046,155 ns
 
 Timing information, step Generation:
   min: 		11,682 ns
