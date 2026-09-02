@@ -14,6 +14,9 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(Kokkos)
 
+# Silence warnings about std::tuple
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -expt-relaxed-constexpr")
+
 # Add executable
 add_executable(GameOfLife_CPU GameOfLife_CPU.cpp)
 add_executable(GameOfLife_Kokkos GameOfLife_Kokkos.cpp)

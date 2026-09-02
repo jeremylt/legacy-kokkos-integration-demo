@@ -15,6 +15,7 @@
 #include <numeric>
 #include <ranges>
 #include <string>
+#include <tuple>
 #include <vector>
 
 /**
@@ -71,6 +72,8 @@ struct CellData final {
   int previous_neighbors;
   // Current state
   int current_neighbors;
+  // Index
+  std::tuple<int, int> index;
 };
 
 class DataContainer final {
@@ -351,34 +354,36 @@ static void stepGeneration(CellData *board, const int num_rows, const int num_co
   // Loop over each cell
   // -- Need to copy old data first
   Kokkos::parallel_for(
-      "save history", Kokkos::MDRangePolicy<Kokkos::Rank<2>>({0, 0}, {num_rows, num_columns}),
-      KOKKOS_LAMBDA(const int row, const int column) {
+      "save history", Kokkos::RangePolicy<Kokkos::DefaultExecutionSpace>(0, num_rows * num_columns),
+      KOKKOS_LAMBDA(const int cell) {
         KOKKOS_IF_ON_HOST((std::cout << std::format("!-- Note: This portion of the kernel should be on the device if "
                                                     "you followed the instructions in the README and "
                                                     "configured Kokkos to execute on the device. This message should "
                                                     "be compiled out if Kokkos was built correctly! --\n");))
-        board[row * num_columns + column].previous_neighbors = board[row * num_columns + column].current_neighbors;
-        board[row * num_columns + column].is_changed =
-            board[row * num_columns + column].current_state == board[row * num_columns + column].previous_state;
-        board[row * num_columns + column].previous_state = board[row * num_columns + column].current_state;
+        board[cell].previous_state = board[cell].current_state;
+        board[cell].previous_neighbors = board[cell].current_neighbors;
       });
   // Loop over each cell
   // -- Then update the new current values
   Kokkos::parallel_for(
-      "step Generation", Kokkos::MDRangePolicy<Kokkos::Rank<2>>({0, 0}, {num_rows, num_columns}),
-      KOKKOS_LAMBDA(const int row, const int column) {
+      "step Generation", Kokkos::RangePolicy<Kokkos::DefaultExecutionSpace>(0, num_rows * num_columns),
+      KOKKOS_LAMBDA(const int cell) {
+        int row, column;
+        std::tie(row, column) = board[cell].index;
+
         auto neighbor_count = countLiveNeighbors(board, row, column, num_rows, num_columns);
-        board[row * num_columns + column].current_neighbors = neighbor_count;
+        board[cell].current_neighbors = neighbor_count;
 
         // Grow/live if 2-3 neighbors, otherwise die
         // -- Note that the variables min_* and max_* are captured automatically, we only need to manage arrays
-        auto previous_state = board[row * num_columns + column].previous_state;
+        auto previous_state = board[cell].previous_state;
         auto current_state =
             (previous_state == CellState::Alive && neighbor_count >= min_birth && neighbor_count <= max_birth) ||
                     (neighbor_count >= min_remain && neighbor_count <= max_remain)
                 ? CellState::Alive
                 : CellState::Dead;
-        board[row * num_columns + column].current_state = current_state;
+        board[cell].current_state = current_state;
+        board[cell].is_changed = current_state == previous_state;
       });
 }
 
@@ -416,31 +421,33 @@ int main(int argc, char **argv) {
     const bool use_checkerboard =
         readUserInput("Use checkerboard pattern? (0 for no, otherwise yes)", 1, 0, std::numeric_limits<int>::max());
 
-    if (use_checkerboard) {
+    // Set the index
+    {
       auto board_data = board.get_data_writable(MemorySpace::Host);
 
       for (int row = 0; row < num_rows; row++) {
         for (int column = 0; column < num_columns; column++) {
-          board_data[row * num_columns + column].current_state =
-              (row + column) % 2 ? CellState::Alive : CellState::Dead;
+          board_data[row * num_columns + column].index = {row, column};
         }
       }
-    } else {
+    }
+    // Set the initial values
+    {
       auto board_data = board.get_data_writable(MemorySpace::Host);
 
-      for (auto cell = 0; cell < num_rows * num_columns; ++cell) {
-        board_data[cell].current_state = rand() % 2 ? CellState::Alive : CellState::Dead;
+      for (int cell = 0; cell < num_rows * num_columns; cell++) {
+        board_data[cell].current_state = (use_checkerboard ? cell : rand()) % 2 ? CellState::Alive : CellState::Dead;
       }
     }
     // And set the history data
     {
       auto board_data = board.get_data_writable(MemorySpace::Host);
 
-      for (int row = 0; row < num_rows; row++) {
-        for (int column = 0; column < num_columns; column++) {
-          board_data[row * num_columns + column].current_neighbors =
-              countLiveNeighbors(board_data, row, column, num_rows, num_columns);
-        }
+      for (int cell = 0; cell < num_rows * num_columns; cell++) {
+        int row, column;
+        std::tie(row, column) = board_data[cell].index;
+
+        board_data[cell].current_neighbors = countLiveNeighbors(board_data, row, column, num_rows, num_columns);
       }
     }
     std::cout << std::format("Initial Generation:\n");
