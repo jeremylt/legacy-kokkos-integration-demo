@@ -385,11 +385,11 @@ static void stepGeneration(CellData *board, const int num_rows, const int num_co
         // Grow/live if 2-3 neighbors, otherwise die
         // -- Note that the variables min_* and max_* are captured automatically, we only need to manage arrays
         auto previous_state = board[cell].previous_state;
-        auto current_state =
-            (previous_state == CellState::Alive && neighbor_count >= params.min_birth && neighbor_count <= params.max_birth) ||
-                    (neighbor_count >= params.min_remain && neighbor_count <= params.max_remain)
-                ? CellState::Alive
-                : CellState::Dead;
+        auto current_state = (previous_state == CellState::Alive && neighbor_count >= params.min_birth &&
+                              neighbor_count <= params.max_birth) ||
+                                     (neighbor_count >= params.min_remain && neighbor_count <= params.max_remain)
+                                 ? CellState::Alive
+                                 : CellState::Dead;
         board[cell].current_state = current_state;
         board[cell].is_changed = current_state == previous_state;
       });
@@ -445,7 +445,11 @@ int main(int argc, char **argv) {
       auto board_data = board.get_data_writable(MemorySpace::Host);
 
       for (int cell = 0; cell < num_rows * num_columns; cell++) {
-        board_data[cell].current_state = (use_checkerboard ? cell : rand()) % 2 ? CellState::Alive : CellState::Dead;
+        int row, column;
+        std::tie(row, column) = board_data[cell].index;
+
+        board_data[cell].current_state =
+            (use_checkerboard ? (column + row) : rand()) % 2 ? CellState::Alive : CellState::Dead;
       }
     }
     // And set the history data
@@ -471,8 +475,7 @@ int main(int argc, char **argv) {
     for (auto generation = 0; generation < num_steps; generation++) {
       // -- Step the simulation
       std::cout << "!-- Executing core function in Kokkos (device) memory -----------------\n";
-      TimedCall(stepGeneration(board.get_data_writable(), num_rows, num_columns, params),
-                times);
+      TimedCall(stepGeneration(board.get_data_writable(), num_rows, num_columns, params), times);
       // -- And finally view the new board
       std::cout << std::format("\n\nGeneration {}:\n", generation + 1);
       TimedCall(board.get_data(MemorySpace::Host), times_device_to_host);
