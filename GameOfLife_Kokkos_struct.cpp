@@ -60,6 +60,18 @@ enum class CellState {
 
 std::map<CellState, std::string> cellStateToString = {{CellState::Alive, "X"}, {CellState::Dead, "."}};
 
+// This struct is here to demonstrate that Kokkos views can get data from host structs
+struct BirthDeathData final {
+  // Fewest neighbors that trigger cell birth
+  int min_birth;
+  // Most neighbors that trigger cell birth
+  int max_birth;
+  // Fewest neighbors that keep cell alive
+  int min_remain;
+  // Most neighbors that keep cell alive
+  int max_remain;
+};
+
 // This struct is here to demonstrate that Kokkos views can use custom data types!
 struct CellData final {
   // State
@@ -339,16 +351,12 @@ KOKKOS_INLINE_FUNCTION int countLiveNeighbors(const CellData *board, const int r
  @param cell_data   The current board.
  @param num_rows    The number of rows in the board.
  @param num_columns The number of columns in the board.
- @param min_birth   The min number of neighboring cells to be active for dead cell to activate.
- @param max_birth   The max number of neighboring cells to be active for dead cell to activate.
- @param min_remain  The min number of neighboring cells to be active for live cell to remain.
- @param max_remain  The max number of neighboring cells to be active for live cell to remain.
+ @param params      Neighbor limits for cell birth and retention.
 
  @return none
 **/
 // The only change the the function signature is to use views instead of vectors.
-static void stepGeneration(CellData *board, const int num_rows, const int num_columns, const int min_birth,
-                           const int max_birth, const int min_remain, const int max_remain) {
+static void stepGeneration(CellData *board, const int num_rows, const int num_columns, const BirthDeathData params) {
   KOKKOS_IF_ON_HOST(
       (std::cout << std::format("!-- Note: This portion of the core function is on the host ------------\n");))
   // Loop over each cell
@@ -378,8 +386,8 @@ static void stepGeneration(CellData *board, const int num_rows, const int num_co
         // -- Note that the variables min_* and max_* are captured automatically, we only need to manage arrays
         auto previous_state = board[cell].previous_state;
         auto current_state =
-            (previous_state == CellState::Alive && neighbor_count >= min_birth && neighbor_count <= max_birth) ||
-                    (neighbor_count >= min_remain && neighbor_count <= max_remain)
+            (previous_state == CellState::Alive && neighbor_count >= params.min_birth && neighbor_count <= params.max_birth) ||
+                    (neighbor_count >= params.min_remain && neighbor_count <= params.max_remain)
                 ? CellState::Alive
                 : CellState::Dead;
         board[cell].current_state = current_state;
@@ -407,10 +415,11 @@ int main(int argc, char **argv) {
   std::cout << std::format("Total board size is {}*{} = {}.\n\n", num_rows, num_columns, num_rows * num_columns);
 
   // Birth and remain rules
-  const int min_birth = readUserInput("Enter the minimum number of live neighbors to trigger birth", 2, 0, 8);
-  const int max_birth = readUserInput("Enter the maximum number of live neighbors to trigger birth", 3, 0, 8);
-  const int min_remain = readUserInput("Enter the minimum number of live neighbors for cell retention", 3, 0, 8);
-  const int max_remain = readUserInput("Enter the maximum number of live neighbors for cell retention", 3, 0, 8);
+  BirthDeathData params;
+  params.min_birth = readUserInput("Enter the minimum number of live neighbors to trigger birth", 2, 0, 8);
+  params.max_birth = readUserInput("Enter the maximum number of live neighbors to trigger birth", 3, 0, 8);
+  params.min_remain = readUserInput("Enter the minimum number of live neighbors for cell retention", 3, 0, 8);
+  params.max_remain = readUserInput("Enter the maximum number of live neighbors for cell retention", 3, 0, 8);
 
   // Initialize
   {
@@ -462,8 +471,7 @@ int main(int argc, char **argv) {
     for (auto generation = 0; generation < num_steps; generation++) {
       // -- Step the simulation
       std::cout << "!-- Executing core function in Kokkos (device) memory -----------------\n";
-      TimedCall(stepGeneration(board.get_data_writable(), num_rows, num_columns, min_birth, max_birth, min_remain,
-                               max_remain),
+      TimedCall(stepGeneration(board.get_data_writable(), num_rows, num_columns, params),
                 times);
       // -- And finally view the new board
       std::cout << std::format("\n\nGeneration {}:\n", generation + 1);
